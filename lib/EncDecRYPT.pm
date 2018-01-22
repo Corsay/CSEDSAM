@@ -24,6 +24,65 @@ use warnings;
 =cut
 
 
+=head1 Encryption_Decryption
+=head2 EncDec
+	Функция осуществляющяя наложение ГАММЫ на сообщение.
+	Входные параметры:
+		1 - сообщение;
+		2 - ключ.
+	Требование к входным параметрам:
+		Сообщение и ключ должны быть одинаковой длины.
+	Выходные параметры - сообщение с наложением гаммы.
+=cut
+sub EncDec {
+	my ($msg, $key) = @_;
+	return undef unless ($msg || $key || length($msg) == length($key));
+	my $msg_xor = $msg ^ $key;	# побитовый XOR
+	return $msg_xor;
+}
+
+
+=head1 Import\Unimport
+=cut
+my $ImportedByDefault = qw/EncDec/;
+sub def_import {
+	my $pkg = shift;
+	{
+		no strict 'refs';
+		*{"${pkg}::$_"} = \&{$_} foreach $ImportedByDefault;
+	}
+}
+sub def_unimport {
+	my $pkg = shift;
+	{
+		no strict 'refs';
+		delete ${"${pkg}::"}{$_} foreach $ImportedByDefault;
+	}
+}
+sub import {
+	my $self = shift;
+	my $pkg = caller;
+
+	def_import($pkg);	# то что import по умолчанию
+
+	foreach my $func (@_) {
+		no strict 'refs';
+		*{"${pkg}::$func"} = \&{$func};
+	}
+}
+sub unimport {
+	my $self = shift;
+	my $pkg = caller;
+
+	def_unimport($pkg);	# то что unimport по умолчанию
+
+	{
+		no strict 'refs';
+		delete ${"${pkg}::"}{$_} foreach @_;
+	}
+}
+
+
 =head1 LICENSE AND COPYRIGHT
 
 Copyright 2018 Dmitriy Tcibisov.
