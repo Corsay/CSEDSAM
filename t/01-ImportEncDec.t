@@ -26,7 +26,7 @@ $msg_xor = EncDecRYPT::EncDec($msg_xor, $key);
 is($msg_xor, $msg, "Decrypt message");
 
 
-# Тестирование импорта (на тесте наложения ключа)
+# Тестирование импорта
 no EncDecRYPT;
 use EncDecRYPT qw/EncDec/;
 
