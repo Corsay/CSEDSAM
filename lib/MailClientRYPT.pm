@@ -26,19 +26,19 @@ use warnings;
 
 =head1 Import\Unimport
 =cut
-my $ImportedByDefault = qw//;
+my @ImportedByDefault = qw//;
 sub def_import {
 	my $pkg = shift;
 	{
 		no strict 'refs';
-		*{"${pkg}::$_"} = \&{$_} foreach $ImportedByDefault;
+		*{"${pkg}::$_"} = \&{$_} foreach @ImportedByDefault;
 	}
 }
 sub def_unimport {
 	my $pkg = shift;
 	{
 		no strict 'refs';
-		delete ${"${pkg}::"}{$_} foreach $ImportedByDefault;
+		delete ${"${pkg}::"}{$_} foreach @ImportedByDefault;
 	}
 }
 sub import {

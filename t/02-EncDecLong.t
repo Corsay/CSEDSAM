@@ -7,7 +7,7 @@ use Test::More;
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 
-plan tests => 3;
+plan tests => 4;
 
 use EncDecRYPT;
 
@@ -24,4 +24,8 @@ ok(1,"test 2");
 
 # 3 - при длине сообщения больше длины ключа (гаммы), но при этом длина последней части сообщения меньше длины ключа (гаммы)
 ok(1,"test 3");
+# ToDo Tests
+
+# 4 - при длине сообщения равной длине ключа (гаммы)
+ok(1,"test 4");
 # ToDo Tests
