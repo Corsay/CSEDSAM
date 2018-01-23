@@ -4,6 +4,8 @@ use 5.010;
 use strict;
 use warnings;
 
+use Time::Local;
+
 =head1 NAME
 
     EncDecRYPT - The great new Encryption and Decryption module!
@@ -37,7 +39,8 @@ use warnings;
 =cut
 sub EncDec {
 	my ($msg, $key) = @_;
-	return undef unless ($msg || $key || length($msg) == length($key));
+	return undef if grep {not defined $_ } $msg, $key;
+	return undef until length($msg) == length($key);
 	my $msg_xor = $msg ^ $key;	# побитовый XOR
 	return $msg_xor;
 }
@@ -49,15 +52,16 @@ sub EncDec {
 	Входные параметры:
 		1 - сообщение;
 		2 - ссылка на справочник ключей (гамм);
-		3 - параметры для выбора ключа (гаммы), ими являются - номер недели(в году), текущее время(часы и минуты).
+		3 - параметры для выбора ключа (гаммы), ими являются - датавремя(секунды, минуты, часы; день, месяц, год) и конкатенация(concat) параметров согласно используемому справочнику.
 		4 - символ дополнения (по-умолчанию $defMsgExpander)
 	Выходные параметры:
-		1 - массив, каждый элемент которого, является кортежем состоящим из:
-			* части сообщения с наложением ключа (гаммы);
-			* конкатенация для однозначного нахождения нужного ключа (гаммы) в справочнике.
+		1 - массив, каждый элемент которого, является хешом состоящим из:
+			* сообщение - msg	- часть сообщения с наложением ключа (гаммы);
+			* время		- time	- ссылка на хэш содержащий параметры выбора ключа (точное время для отправки сообщения).
 	Дополнение:
 		Считается что каждый символ сообщения и ключа является 8-битным.
 		Если длина части сообщения меньше длины ключа (гаммы), сообщение дополняется незначащими символами для удовлетворения условию равенства длин сообщения и ключа (гаммы).
+		Критической зоной (когда ключей меньше чем частей сообщений) в конце таблицы пренебрегаем в данной реализации.
 	Структура справочника ключей (гамм) - два варианта хеша:
 		Первый:
 			ключ - конкатенация (с разделением через '-') номера недели, часов и минут (пример: 1-10-06)
@@ -75,22 +79,22 @@ sub EncDec {
 				* часы		- hour	- значение (0 - 23);
 				* минуты	- minut	- значение (0 - 59);
 				* ключ		- key	- значение (полностью сформированная гамма, т.е. если длины не хватает, то выбрать следущий интервал и соответствующий ключ).
-	Структура параметров выбора ключа соответствует структуре соответствующего справочника(с точностью до именования ключей + concat (конкатенация));
 =cut
 my $defMsgExpander = chr(22);	# SYN - chr(22) - 16h
 sub EncDecLong {
 	my $msg = shift;
 	my $keyDict = shift;
 	my $keyParams = shift;
+	return undef if grep {not defined $_ } $msg, $keyDict, $keyParams;
 	my $msgExpander = shift;
-	$msgExpander = $defMsgExpander until ($msgExpander || length($msgExpander) > 1);
+	$msgExpander = $defMsgExpander if (not defined $msgExpander or length($msgExpander) > 1);
+	my @rezultMas = ();
 
 	# ToDo Проверить параметры
 
 	# 1. Выбрать ключ (запомнить ключ и его длину).
 	my $key = $keyDict->{ $keyParams->{concat} }{ key };
-
-	# ToDo если справочник первого типа (с короткими ключами), то заморочиться с их генерацией (и тут)
+	# ToDo доопределить работу с первым справочником (генерация ключа нужной длины)
 	# ToDo Проверить что ключ обнаружен
 	my $keyLen = length($key);
 
@@ -103,17 +107,58 @@ sub EncDecLong {
 
 	# 5. Выбрать из таблицы соответствующее количеству частей сообщения количество ключей, начиная с ключа выбранного в пункте 1.
 	my @keyMas = ($key);
+	# забираем нужные ключи, добавляя ко времени $defTimePartExpander
+	for my $i (1..$#msgMas) {
+		$keyParams = TimePartAdd( $keyParams );	# $keyParams->{concat} после данной функции не валиден.
+		# определяем используемый справочник
+		if ( exists $keyDict->{ $keyParams->{concat} }{ WeekNum } ) {	# первый (конкатенация (с разделением через '-') номера недели, часов и минут (пример: 1-10-06))
+			# ToDo доопределить работу с первым справочником (генерация ключа нужной длины) нужен или нет в итоге данный участок условия
+			$keyParams->{concat} = $keyParams->{WeekNum} . "-" . $keyParams->{hour} . "-" . $keyParams->{minut};
+		}
+		else {	# второй (конкатенация (с разделением через '-') месяца, дня, часов и минут (пример: 12-31-23-59))
+			$keyParams->{concat} = $keyParams->{month} . "-" . $keyParams->{day} . "-" . $keyParams->{hour} . "-" . $keyParams->{minut};
+		}
+		# сохраняем следующий ключ в массив ключей
+		push @keyMas, $keyDict->{ $keyParams->{concat} };
+		# сохраняем время для результата
+		$rezultMas[$i]{time} = $keyParams;
+	}
+	# ToDo доопределить работу с первым справочником (генерация ключа нужной длины)
 
 	# 6. Произвести шифрование элементов из массива частей сообщения на массиве ключей
 	for my $i (0..$#msgMas) {
-		$msgMas[$i] = EncDec($msgMas[$i], $keyMas[$i]);
+		$rezultMas[$i]{msg} = EncDec($msgMas[$i], $keyMas[$i]);
 	}
-
-	# 7. Сформировать список сообщений для возврата
-
-	return;
+	return \@rezultMas;
 }
 
+=head1 Time
+=head2 TimePartAdd
+	Функция прибавляющая $defTimePartExpander (прирост времени) к временному интервалу.
+	Входные параметры:
+		хеш со временем для текущего ключа
+	Выходные параметры:
+		хеш с модифицированным временем для следующего ключа
+	Замечание:
+		$keyParams->{concat} после данной функции не валиден.
+=cut
+my $defTimePartExpander = 120;	# время в unix_time
+sub TimePartAdd {
+	my $keyParams = shift;
+	# получаем unix_timestamp
+	my $unix_timestamp = timelocal($keyParams->{seconds}, $keyParams->{minut}, $keyParams->{hour}, $keyParams->{day}, $keyParams->{month} - 1, $keyParams->{year});
+	$unix_timestamp += $defTimePartExpander;	# модифицируем
+	# формируем новые временные параметры
+	my @time = localtime($unix_timestamp);
+	$keyParams->{seconds} = $time[0];
+	$keyParams->{minut} = $time[1];
+	$keyParams->{hour} = $time[2];
+	$keyParams->{day} = $time[3];
+	$keyParams->{month} = $time[4] + 1;
+	$keyParams->{year} = $time[5] + 1900;
+	$keyParams->{WeekNum} = int($time[7] / 7) + 1;
+	return $keyParams;
+}
 
 =head1 Import\Unimport
 =cut

@@ -7,7 +7,7 @@ use Test::More;
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 
-plan tests => 4;
+plan tests => 7;
 
 use EncDecRYPT;
 
@@ -25,6 +25,10 @@ is($msg_xor, $waited_msg_xor, "Encrypt message");
 $msg_xor = EncDecRYPT::EncDec($msg_xor, $key);
 is($msg_xor, $msg, "Decrypt message");
 
+# проверка undef
+is(EncDec(undef, $key), undef, "EncDec undef msg");
+is(EncDec($msg, undef), undef, "EncDec undef key");
+is(EncDec(undef, undef), undef, "EncDec undef all");
 
 # Тестирование импорта
 no EncDecRYPT;
