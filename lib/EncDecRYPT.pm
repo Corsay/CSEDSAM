@@ -63,7 +63,7 @@ sub EncDec {
 		Если длина части сообщения меньше длины ключа (гаммы), сообщение дополняется незначащими символами для удовлетворения условию равенства длин сообщения и ключа (гаммы).
 		Критической зоной (когда ключей меньше чем частей сообщений) в конце таблицы пренебрегаем в данной реализации.
 	Структура справочника ключей (гамм) - два варианта хеша:
-		Первый:
+		Первый (не полностью реализованно):
 			ключ - конкатенация (с разделением через '-') номера недели, часов и минут (пример: 1-10-06)
 			значение - ссылка на хеш, содержащий:
 				* номер недели	- weekNum	- значение (1 - 52);
@@ -86,9 +86,10 @@ sub EncDecLong {
 	my $keyDict = shift;
 	my $keyParams = shift;
 	return undef if grep {not defined $_ } $msg, $keyDict, $keyParams;
+	$keyParams = { %$keyParams }; # копируем keyParams
 	my $msgExpander = shift;
 	$msgExpander = $defMsgExpander if (not defined $msgExpander or length($msgExpander) > 1);
-	my @rezultMas = ();
+	my @rezultMas = ();	# массив для результата
 
 	# ToDo Проверить параметры
 
@@ -96,17 +97,18 @@ sub EncDecLong {
 	my $key = $keyDict->{ $keyParams->{concat} }{ key };
 	# ToDo доопределить работу с первым справочником (генерация ключа нужной длины)
 	# ToDo Проверить что ключ обнаружен
-	my $keyLen = length($key);
+	my $keyLen = length(unpack "B*", $key) / 8;	# length плохо работает с кодами от 00h до 20h
 
 	# 2. Если длина сообщения больше длины ключа, то разбить его на части.
 	# 3. Поместить сообщение(части сообщения) в массив.
 	my @msgMas = grep {$_ ne ""} split /(.{$keyLen})/, $msg;
 
 	# 4. Если последний элемент помещенный в массив (сообщение или его часть) имеет длину меньше длины ключа, то дополнить сообщение до длины ключа (заранее оговоренными символами).
-	if (length($#msgMas) < $keyLen) { $msgMas[$#msgMas] .= $msgExpander x ($keyLen - length($#msgMas)); }
+	if (length(unpack "B*", $msgMas[$#msgMas]) / 8 < $keyLen) { $msgMas[$#msgMas] .= $msgExpander x ( ($keyLen - length(unpack "B*", $msgMas[$#msgMas]) / 8) ); }
 
 	# 5. Выбрать из таблицы соответствующее количеству частей сообщения количество ключей, начиная с ключа выбранного в пункте 1.
 	my @keyMas = ($key);
+	$rezultMas[0]{time} = { %$keyParams };	# временные параметры для первого ключа
 	# забираем нужные ключи, добавляя ко времени $defTimePartExpander
 	for my $i (1..$#msgMas) {
 		$keyParams = TimePartAdd( $keyParams );	# $keyParams->{concat} после данной функции не валиден.
@@ -119,9 +121,9 @@ sub EncDecLong {
 			$keyParams->{concat} = $keyParams->{month} . "-" . $keyParams->{day} . "-" . $keyParams->{hour} . "-" . $keyParams->{minut};
 		}
 		# сохраняем следующий ключ в массив ключей
-		push @keyMas, $keyDict->{ $keyParams->{concat} };
+		push @keyMas, $keyDict->{ $keyParams->{concat} }{ key };
 		# сохраняем время для результата
-		$rezultMas[$i]{time} = $keyParams;
+		$rezultMas[$i]{time} = { %$keyParams };
 	}
 	# ToDo доопределить работу с первым справочником (генерация ключа нужной длины)
 
@@ -131,6 +133,7 @@ sub EncDecLong {
 	}
 	return \@rezultMas;
 }
+
 
 =head1 Time
 =head2 TimePartAdd
