@@ -16,9 +16,9 @@ my $msg = "11";	# 00110001 00110001
 my $key = "22";	# 00110010 00110010
 my $waited_msg_xor = pack("B*", '0000001100000011');
 
-#say 'message = ', $msg,				'	bytemsg = ', unpack "B*", $msg;
-#say '    key = ', $key,				'	bytekey = ', unpack "B*", $key;
-#say ' waited = ', $waited_msg_xor,	'	bytewaited = ', unpack "B*", $waited_msg_xor;
+#say 'message = ', $msg,	' bytemsg = ', unpack "B*", $msg;
+#say '    key = ', $key,	' bytekey = ', unpack "B*", $key;
+#say ' waited = ', $waited_msg_xor,	' bytewaited = ', unpack "B*", $waited_msg_xor;
 
 my $msg_xor = EncDecRYPT::EncDec($msg, $key);
 is($msg_xor, $waited_msg_xor, "Encrypt message");
