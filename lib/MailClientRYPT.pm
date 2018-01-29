@@ -32,6 +32,17 @@ use Encode::IMAPUTF7;
 =cut
 
 
+# цвета для полей:
+my $colorDefault = "\x1b[0m";
+my $colorQuestions = "\x1b[0m";
+my $colorAnswerLine = "\x1b[0m";
+my $colorMenuNumber = "\x1b[32m";
+my $colorMenuString = "\x1b[0m";
+my $colorMenuSpecString = "\x1b[0m";
+my $colorMenuExitString = "\x1b[0m";
+my $colorInfoString = "\x1b[32m";
+my $colorInfoErrorString = "\x1b[1;31m";
+
 =head1 MailClient
 	Функция, в которой осуществляется:
 		1 - подключение к почтовому серверу
@@ -51,36 +62,43 @@ sub MailClient {
 		Password => $password,
 		Ssl      => 1,
 		Uid      => 1,
-	) or die "Can't connect to your mail server.\n";
+	) or die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n";
 
 	# получаем с сервера список папок
 	my $folders = $imap->folders
-		or die "Folders list Error: ", $imap->LastError, "\n";
+		or die $colorInfoErrorString . "Folders list Error: " . $imap->LastError . $colorDefault . "\n";
 
 	my ($folderNum, $curFolder, $i, @msgs);
 	while (1)
 	{
 		# запрашиваем у пользователя номер папки для просмотра писем
 		$i = 0;
-		say '-----------------------------------------------------';
-		say 'Введите номер соответствующий нужной папке сообщений:';
-		say '-----------------------------------------------------';
+		say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
+		say $colorQuestions . 'Введите номер соответствующий нужной папке сообщений:' . $colorDefault;
+		say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
 		for (@$folders) {
-			say $i++ . " -> " . Encode::decode("IMAP-UTF-7", $_);
+			say $colorMenuNumber . $i++ . $colorMenuString . " -> " . Encode::decode("IMAP-UTF-7", $_) . $colorDefault;
 		}
-		say $i . " -> разлогиниться и выйти из почтового клиента.";
-		print "Выбранная папка - ";
+		say $colorMenuNumber . $i++ . $colorMenuSpecString . " -> перейти к отправке сообщений." . $colorDefault;
+		say $colorMenuNumber . $i . $colorMenuExitString . " -> разлогиниться и выйти из почтового клиента." . $colorDefault;
+		print $colorAnswerLine . "Выбранная папка - " . $colorDefault;
 		$folderNum = <STDIN>;
+		chomp($folderNum);
 
-		# Прокерка валидности номера папки (только число от 0 до $#{$folders} + 1)
-		if ($folderNum - 1 > $#{$folders} or $folderNum !~ /^\d+$/) {
+		# Прокерка валидности номера папки (только число от 0 до $#{$folders} + 2)
+		if ($folderNum - 2 > $#{$folders} or $folderNum !~ /^\d+$/) {
 			system('clear');
-			chomp($folderNum);
-			print "Введен некорректный номер папки '$folderNum'\n";
+			print $colorInfoErrorString . "Введен некорректный номер папки '$folderNum'\n" . $colorDefault;
+			next;
+		}
+		# Перейти к отправке сообщений
+		if ($folderNum - 1 == $#{$folders}) {
+			system('clear');
+			# ToDo вызов функции отправки сообщений
 			next;
 		}
 		# Выход
-		if ($folderNum - 1 == $#{$folders}) {
+		if ($folderNum - 2 == $#{$folders}) {
 			system('clear');
 			last;
 		}
@@ -92,30 +110,45 @@ sub MailClient {
 		@msgs = $imap->messages or do {
 			# или возвращаемся к выбору папки если в выбранной нет ни одного письма
 			system('clear');
-			print "Нет сообщений в папке '$curFolder'\n";
+			print $colorInfoErrorString . "Нет сообщений в папке '$curFolder'\n" . $colorDefault;
 			next;
 		};
+		system('clear');
 		# Забираем информацию о сообщениях из текущей папки
 		# FLAGS \seen - Просмотрено
-		#my $hashref = $imap->fetch_hash( qw/FLAGS INTERNALDATE RFC822.HEADER RFC822.SIZE/ );	# ENVELOPE BODYSTRUCTURE RFC822.TEXT
-		#p $hashref;
-		system('clear');
+		# INTERNALDATE - дата и время отправки по GMT
+		# Нужно достать From: Subject: Date: и INTERNALDATE
+		my $hashref = $imap->fetch_hash( qw/INTERNALDATE RFC822.HEADER/ );	# FLAGS ENVELOPE BODYSTRUCTURE RFC822.SIZE RFC822.TEXT
+		my %msgInfoHash = ();
+		for my $k (keys %$hashref) {
+			$msgInfoHash{ $k }{ INTERNALDATE } = $hashref->{ $k }{ INTERNALDATE };
+			my @list = $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:From:|Subject:|Date:)\s(.+)/g;
+			chop($_) foreach (@list);
+			$msgInfoHash{ $k }{ From1 } = $list[0];
+			$msgInfoHash{ $k }{ From2 } = $list[1];
+			$msgInfoHash{ $k }{ Subject } = $list[2];
+			$msgInfoHash{ $k }{ SenderLocalDate } = $list[3];
+			# информационная строка:
+			$msgInfoHash{ $k }{ ShortInfoString } = "$list[1] ($list[2]) ($list[3])";
+			$msgInfoHash{ $k }{ InfoString } = "От: $list[0] ($list[1])\nЗаголовок: $list[2]\nВремя отправления: $list[3]\nВнутреннее время: " . $msgInfoHash{ $k }{ INTERNALDATE };
+		}
 
 		my ($msgid, $string);
 		while (1)
 		{
-			say '_____________________________________________________';
-			say "Текущая папка: $curFolder";
+			say $colorInfoString . '_____________________________________________________' . $colorDefault;
+			say $colorInfoString . "Текущая папка: $curFolder" . $colorDefault;
 			# запрашиваем у пользователя номер желаемого к прочтению сообщения
-		    say '-----------------------------------------------------';
-			say 'Введите номер соответствующий сообщению для прочтения:';
-			say '-----------------------------------------------------';
+		    say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
+			say $colorQuestions . 'Введите номер соответствующий сообщению для прочтения' . $colorDefault;
+			say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
 			for (@msgs) {
-				say $_;
+				say $colorMenuNumber . "$_" . $colorMenuString . " -> " . $msgInfoHash{ $_ }{ ShortInfoString } . $colorDefault;
 			}
-			say "0 -> вернуться к выбору папки.";
-			print "Выбранное сообщение - ";
+			say $colorMenuNumber . "0" . $colorMenuExitString . " -> вернуться к выбору папки." . $colorDefault;
+			print $colorAnswerLine . "Выбранное сообщение - " . $colorDefault;
 			$msgid = <STDIN>;
+			chomp($msgid);
 
 			# Возврат
 			if ($msgid == 0) {
@@ -126,17 +159,17 @@ sub MailClient {
 			$string = $imap->body_string($msgid) or do {
 				# или выводим сообщения с запрошенным номером нет
 				system('clear');
-				chomp($msgid);
-				print "Нет сообщения с таким номером($msgid) в папке '$curFolder'\n";
+				print $colorInfoErrorString . "Нет сообщения с таким номером($msgid) в папке '$curFolder'\n" . $colorDefault;
 				next;
 			};
 
 			system('clear');
-			say '_____________________________________________________';
-			say "Выбранное сообщение: №$msgid";
+			say $colorInfoString . '_____________________________________________________'. $colorDefault;
+			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfoString } . $colorDefault;
 
 			# обрабатываем сообщение
 			$string =~ s/(<div>)([^<]*)(<\/div>)/$2\n/g;
+			chop($string);
 			# заменим спецсимволы на символы
 			$string =~ s/(&lt;)/</g;
 			$string =~ s/(&gt;)/>/g;
@@ -154,7 +187,7 @@ sub MailClient {
 
 			# ожидание ввода:
 			say '';
-			say "Нажмите Enter чтобы вернуться к выбору другого сообщения.";
+			say $colorInfoString . "Нажмите Enter чтобы вернуться к выбору другого сообщения." . $colorDefault;
 			$string = <STDIN>;
 			system('clear');
 			next;
@@ -162,7 +195,20 @@ sub MailClient {
 	}
 
 	# выходим из почты
-	$imap->logout or die "Logout error: ", $imap->LastError, "\n";
+	$imap->logout or die $colorInfoErrorString . "Logout error: " . $imap->LastError . $colorDefault . "\n";
+	return;
+}
+
+=head2 SendMail
+	Функция реализующая отправку сообщений
+	Входные параметры:
+		1 - авторизованный экземпляр класса IMAP::MailClient.
+=cut
+sub SendMail {
+	my $imap = shift;
+
+	my ($to, $subject, $body);
+
 	return;
 }
 
