@@ -40,7 +40,7 @@ use Time::Local;
 sub EncDec {
 	my ($msg, $key) = @_;
 	return undef if grep {not defined $_ } $msg, $key;
-	return undef until length($msg) == length($key);
+	return undef unless length($msg) == length($key);
 	my $msg_xor = $msg ^ $key;	# побитовый XOR
 	return $msg_xor;
 }
