@@ -10,6 +10,8 @@ use Email::Simple;
 use Email::Sender::Simple qw(sendmail);
 use Email::Sender::Transport::SMTP;
 
+use EncDecRYPT;
+
 use DDP;
 
 use utf8;
@@ -37,6 +39,42 @@ use Encode::IMAPUTF7;
 
 # ToDo использовать ООП
 
+# ToDo временные ключевые параметры
+my $dictOne = {
+	"2-10-10" => { WeekNum	=> 2, hour	=> 10, minut	=> 10, key	=> "123456", },
+	"2-10-12" => { WeekNum	=> 2, hour	=> 10, minut	=> 12, key	=> "789012", },
+	"2-10-14" => { WeekNum	=> 2, hour	=> 10, minut	=> 14, key	=> "345678", },
+	"2-10-16" => { WeekNum	=> 2, hour	=> 10, minut	=> 16, key	=> "234567", },
+	"2-10-18" => { WeekNum	=> 2, hour	=> 10, minut	=> 18, key	=> "234567", },
+	"2-10-20" => { WeekNum	=> 2, hour	=> 10, minut	=> 20, key	=> "234567", },
+	"2-10-22" => { WeekNum	=> 2, hour	=> 10, minut	=> 22, key	=> "234567", },
+	"2-10-24" => { WeekNum	=> 2, hour	=> 10, minut	=> 24, key	=> "234567", },
+	"2-10-26" => { WeekNum	=> 2, hour	=> 10, minut	=> 26, key	=> "234567", },
+	"2-10-28" => { WeekNum	=> 2, hour	=> 10, minut	=> 28, key	=> "234567", },
+	"2-10-30" => { WeekNum	=> 2, hour	=> 10, minut	=> 30, key	=> "234567", },
+	"2-10-32" => { WeekNum	=> 2, hour	=> 10, minut	=> 32, key	=> "234567", },
+	"2-10-34" => { WeekNum	=> 2, hour	=> 10, minut	=> 34, key	=> "234567", },
+	"2-10-36" => { WeekNum	=> 2, hour	=> 10, minut	=> 36, key	=> "234567", },
+	"2-10-38" => { WeekNum	=> 2, hour	=> 10, minut	=> 38, key	=> "234567", },
+	"2-10-40" => { WeekNum	=> 2, hour	=> 10, minut	=> 40, key	=> "234567", },
+	"2-10-42" => { WeekNum	=> 2, hour	=> 10, minut	=> 42, key	=> "234567", },
+	"2-10-44" => { WeekNum	=> 2, hour	=> 10, minut	=> 44, key	=> "234567", },
+	"2-10-46" => { WeekNum	=> 2, hour	=> 10, minut	=> 46, key	=> "234567", },
+	"2-10-48" => { WeekNum	=> 2, hour	=> 10, minut	=> 48, key	=> "234567", },
+	"2-10-50" => { WeekNum	=> 2, hour	=> 10, minut	=> 50, key	=> "234567", },
+	"2-10-52" => { WeekNum	=> 2, hour	=> 10, minut	=> 52, key	=> "234567", },
+};
+my $keyParamsOne = {
+	seconds	=> 10,
+	minut	=> 10,
+	hour	=> 10,
+	day	=> 10,
+	month	=> 1,
+	year	=> 2018,
+	WeekNum	=> 2,
+	concat	=> "2-10-10"
+};
+
 # цвета для полей:
 my $colorDefault = "\x1b[0m";
 my $colorQuestions = "\x1b[0m";
@@ -59,6 +97,8 @@ sub MailClient {
 	my $server = shift;
 	my $user = shift;
 	my $password = shift;
+	my $encode = shift;	# включать ли шифрование
+	$encode = 1 unless (defined $encode);	# по-умолчанию -> включать
 
 	# устанавливаем соединение с почтовым сервером
 	my $imap = Mail::IMAPClient->new(
@@ -98,7 +138,7 @@ sub MailClient {
 		# Перейти к отправке сообщений
 		if ($folderNum - 1 == $#{$folders}) {
 			system('clear');
-			SendMail($imap); # вызов функции отправки сообщений
+			SendMail($imap, $encode); # вызов функции отправки сообщений
 			next;
 		}
 		# Выход
@@ -174,17 +214,28 @@ sub MailClient {
 			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfoString } . $colorDefault;
 
 			# обрабатываем сообщение
-			$string =~ s/(<div>)?([^<]*)(<\/div>)?/$2\n/g;
-			chop($string);
+			chomp($string);	# убираем символ переноса в конце
+			$string =~ s/.{1}$//;	# убираем символ в конце
+
+			# Расшифровываем текст (если указано)
+			if ($encode) {
+				# ToDo определение параметров для расшифрования
+
+				# Расшифровываем текст
+				#$string =~ s/\n//g;	# убираем \n во всей строке
+				my $msgMas = EncDecLong($string, $dictOne, $keyParamsOne);
+				$string = '';	$string .= $_->{msg} foreach ( @{ $msgMas } );
+			}
+			$string =~ s/(<div>)?([^<]*)(<\/div>)?/$2\n/g;	# убираем <div>(если есть) и добавляем перенос строки
+			chop($string);	# обрезаем перенос после последнего символа
 			# заменим спецсимволы на символы
 			$string =~ s/(&lt;)/</g;
 			$string =~ s/(&gt;)/>/g;
 			$string =~ s/(&amp;)/&/g;
 
-			# ToDo расшифровываем текст
-
 			# кодируем в utf8
 			$string = Encode::decode("utf8", $string);
+
 			# выводим сообщение
 			say '-----------------------------------------------------';
 			say '------------------- Mail contain: -------------------';
@@ -215,6 +266,7 @@ sub MailClient {
 =cut
 sub SendMail {
 	my $imap = shift;
+	my $encode = shift;
 
 	my ($to, $subject, $body);
 	say $colorInfoString . '_____________________________________________________' . $colorDefault;
@@ -225,7 +277,7 @@ sub SendMail {
 	say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
 	# запрашиваем у пользователя данные для отправки
 	print $colorAnswerLine . "Получатель - " . $colorDefault;
-	$to = <STDIN>;	# Получатель ($to = 'CSEDSAM1@Yandex.ru';)
+	$to = <STDIN>;	# Получатель ($to = 'SomePostAdr@Post.com';)
 	chomp($to);
 	print $colorAnswerLine . "Тема - " . $colorDefault;
 	$subject = <STDIN>;	# Тема ($subject = 'AutoMsg';)
@@ -235,7 +287,14 @@ sub SendMail {
 	chomp($body);
 	# ToDo обработка не указанных полей
 
-	# ToDo шифруем текст
+	# шифруем текст (если указано)
+	if ($encode) {
+		# ToDo определение параметров для шифрования
+
+		# шифруем текст
+		my $msgMas = EncDecLong($body, $dictOne, $keyParamsOne);	# шифруем сообщение (разбивая на части если нужно)
+		$body = '';	$body .= $_->{msg} foreach ( @{ $msgMas } );	# собираем зашифрованный вариант в одно целое
+	}
 
 	# формируем сообщение
 	my $email = Email::Simple->create(
