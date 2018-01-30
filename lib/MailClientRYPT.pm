@@ -6,6 +6,10 @@ use warnings;
 
 use Mail::IMAPClient;
 
+use Email::Simple;
+use Email::Sender::Simple qw(sendmail);
+use Email::Sender::Transport::SMTP;
+
 use DDP;
 
 use utf8;
@@ -31,6 +35,7 @@ use Encode::IMAPUTF7;
 =head1 SUBROUTINES/METHODS
 =cut
 
+# ToDo использовать ООП
 
 # цвета для полей:
 my $colorDefault = "\x1b[0m";
@@ -69,8 +74,7 @@ sub MailClient {
 		or die $colorInfoErrorString . "Folders list Error: " . $imap->LastError . $colorDefault . "\n";
 
 	my ($folderNum, $curFolder, $i, @msgs);
-	while (1)
-	{
+	while (1) {
 		# запрашиваем у пользователя номер папки для просмотра писем
 		$i = 0;
 		say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
@@ -94,7 +98,7 @@ sub MailClient {
 		# Перейти к отправке сообщений
 		if ($folderNum - 1 == $#{$folders}) {
 			system('clear');
-			# ToDo вызов функции отправки сообщений
+			SendMail($imap); # вызов функции отправки сообщений
 			next;
 		}
 		# Выход
@@ -118,24 +122,23 @@ sub MailClient {
 		# FLAGS \seen - Просмотрено
 		# INTERNALDATE - дата и время отправки по GMT
 		# Нужно достать From: Subject: Date: и INTERNALDATE
-		my $hashref = $imap->fetch_hash( qw/INTERNALDATE RFC822.HEADER/ );	# FLAGS ENVELOPE BODYSTRUCTURE RFC822.SIZE RFC822.TEXT
+		my $hashref = $imap->fetch_hash( qw/INTERNALDATE RFC822.HEADER RFC822.TEXT/ );	# FLAGS ENVELOPE BODYSTRUCTURE RFC822.SIZE
 		my %msgInfoHash = ();
 		for my $k (keys %$hashref) {
 			$msgInfoHash{ $k }{ INTERNALDATE } = $hashref->{ $k }{ INTERNALDATE };
-			my @list = $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:From:|Subject:|Date:)\s(.+)/g;
+			my @list = $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:From:)\s(.+)/;
+			@list = ( @list, $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:Subject:|Date:)\s(.+)/g );
 			chop($_) foreach (@list);
-			$msgInfoHash{ $k }{ From1 } = $list[0];
-			$msgInfoHash{ $k }{ From2 } = $list[1];
-			$msgInfoHash{ $k }{ Subject } = $list[2];
-			$msgInfoHash{ $k }{ SenderLocalDate } = $list[3];
+			$msgInfoHash{ $k }{ From } = $list[0];
+			$msgInfoHash{ $k }{ Subject } = $list[1];
+			$msgInfoHash{ $k }{ SenderLocalDate } = $list[2];
 			# информационная строка:
-			$msgInfoHash{ $k }{ ShortInfoString } = "$list[1] ($list[2]) ($list[3])";
-			$msgInfoHash{ $k }{ InfoString } = "От: $list[0] ($list[1])\nЗаголовок: $list[2]\nВремя отправления: $list[3]\nВнутреннее время: " . $msgInfoHash{ $k }{ INTERNALDATE };
+			$msgInfoHash{ $k }{ ShortInfoString } = "$list[0] ($list[1]) ($list[2])";
+			$msgInfoHash{ $k }{ InfoString } = "От: $list[0]\nЗаголовок: $list[1]\nВремя отправления: $list[2]\nВнутреннее время: " . $msgInfoHash{ $k }{ INTERNALDATE };
 		}
 
 		my ($msgid, $string);
-		while (1)
-		{
+		while (1) {
 			say $colorInfoString . '_____________________________________________________' . $colorDefault;
 			say $colorInfoString . "Текущая папка: $curFolder" . $colorDefault;
 			# запрашиваем у пользователя номер желаемого к прочтению сообщения
@@ -164,16 +167,22 @@ sub MailClient {
 			};
 
 			system('clear');
+			# ToDo проверить, периодически попадается(разово) в теле сообщения - "...FLAGS... UID..."
+			#p $hashref->{ $msgid }{ 'RFC822.TEXT' };
+			#p $string;
 			say $colorInfoString . '_____________________________________________________'. $colorDefault;
 			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfoString } . $colorDefault;
 
 			# обрабатываем сообщение
-			$string =~ s/(<div>)([^<]*)(<\/div>)/$2\n/g;
+			$string =~ s/(<div>)?([^<]*)(<\/div>)?/$2\n/g;
 			chop($string);
 			# заменим спецсимволы на символы
 			$string =~ s/(&lt;)/</g;
 			$string =~ s/(&gt;)/>/g;
 			$string =~ s/(&amp;)/&/g;
+
+			# ToDo расшифровываем текст
+
 			# кодируем в utf8
 			$string = Encode::decode("utf8", $string);
 			# выводим сообщение
@@ -208,6 +217,56 @@ sub SendMail {
 	my $imap = shift;
 
 	my ($to, $subject, $body);
+	say $colorInfoString . '_____________________________________________________' . $colorDefault;
+	say $colorInfoString . "Отправка сообщения от $imap->{User}" . $colorDefault;
+	# запрашиваем у пользователя номер желаемого к прочтению сообщения
+	say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
+	say $colorQuestions . 'Введите адрес получателя, тему и содержимое сообщения' . $colorDefault;
+	say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
+	# запрашиваем у пользователя данные для отправки
+	print $colorAnswerLine . "Получатель - " . $colorDefault;
+	$to = <STDIN>;	# Получатель ($to = 'CSEDSAM1@Yandex.ru';)
+	chomp($to);
+	print $colorAnswerLine . "Тема - " . $colorDefault;
+	$subject = <STDIN>;	# Тема ($subject = 'AutoMsg';)
+	chomp($subject);
+	print $colorAnswerLine . "Сообщение - " . $colorDefault;
+	$body = <STDIN>;	# Сообщение ($body = "My msg like this.\n";)
+	chomp($body);
+	# ToDo обработка не указанных полей
+
+	# ToDo шифруем текст
+
+	# формируем сообщение
+	my $email = Email::Simple->create(
+		header => [
+			To      => $to,
+			From    => $imap->{User},
+			Subject => $subject,
+		],
+		body => $body,
+	);
+	my $transport = Email::Sender::Transport::SMTP->new({
+		host => 'smtp.yandex.ru',
+		port => 465,
+		ssl => 1,
+		sasl_username => $imap->{User},
+		sasl_password => $imap->{Password},
+	});
+
+	# отправляем сообщение
+	sendmail(
+		$email,
+		{
+			transport => $transport,
+		}
+	);
+
+	# ожидание ввода:
+	say '';
+	say $colorInfoString . "Нажмите Enter чтобы вернуться к выбору папки." . $colorDefault;
+	$body = <STDIN>;
+	system('clear');
 
 	return;
 }
