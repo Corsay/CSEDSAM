@@ -169,11 +169,22 @@ sub MailClient {
 			# забираем нужные части из RFC822.HEADER
 			my %Head = ();
 			my @NeedHead = qw/From Subject Date Content-Transfer-Encoding Content-Type/;
+			# ToDo обработка двустрочных частей в RFC822.HEADER
 			foreach (@NeedHead) { $Head{ $_ } = $1 if ( $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:$_:)\s(.+)/ ); }
 
 			# разбираем и обрабатываем каждый ключ из хеша с нужными заголовками
 			for my $k (keys %Head) {
 				chop( $Head{ $k } );	# отрезаем символ в конце строки
+				# парсим части RFC822.HEADER закодированные в base64 '=?utf-8?B?'
+				if ( $Head{ $k } =~ /=\?utf-8\?[Bb]\?/ ) {
+					my @ParseHead = ( $Head{ $k } =~ /=\?utf-8\?[Bb]\?(.*)\?=(.*)/g );
+					$Head{ $k } = '';
+					my $i = 0;
+					while ($i <= $#ParseHead) {
+						$Head{ $k } .= decode_base64($ParseHead[ $i++ ]) . $ParseHead[ $i++ ];
+					}
+					$Head{ $k } = Encode::decode("utf8", $Head{ $k });
+				}
 			}
 
 			# сохраняем поля в нужном виде и добавляем дополнительную информацию
