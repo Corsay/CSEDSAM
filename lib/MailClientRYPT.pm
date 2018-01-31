@@ -11,6 +11,7 @@ use Email::Sender::Simple qw(sendmail);
 use Email::Sender::Transport::SMTP;
 
 use EncDecRYPT;
+use MIME::Base64;
 
 use utf8;
 binmode(STDOUT,':utf8');
@@ -159,22 +160,29 @@ sub MailClient {
 		};
 		system('clear');
 		# Забираем информацию о сообщениях из текущей папки
+		# ToDo вынести в отдельную функцию
 		# FLAGS \seen - Просмотрено
 		# INTERNALDATE - дата и время отправки по GMT
-		# Достаём From: Subject: Date: и INTERNALDATE
 		my $hashref = $imap->fetch_hash( qw/INTERNALDATE RFC822.HEADER RFC822.TEXT/ );	# FLAGS ENVELOPE BODYSTRUCTURE RFC822.SIZE
 		my %msgInfoHash = ();
 		for my $k (keys %$hashref) {
+			# забираем нужные части из RFC822.HEADER
+			my %Head = ();
+			my @NeedHead = qw/From Subject Date Content-Transfer-Encoding Content-Type/;
+			foreach (@NeedHead) { $Head{ $_ } = $1 if ( $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:$_:)\s(.+)/ ); }
+
+			# разбираем и обрабатываем каждый ключ из хеша с нужными заголовками
+			for my $k (keys %Head) {
+				chop( $Head{ $k } );	# отрезаем символ в конце строки
+			}
+
+			# сохраняем поля в нужном виде и добавляем дополнительную информацию
 			$msgInfoHash{ $k }{ INTERNALDATE } = $hashref->{ $k }{ INTERNALDATE };
-			my @list = $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:From:)\s(.+)/;
-			@list = ( @list, $hashref->{ $k }{ 'RFC822.HEADER' } =~ /(?:Subject:|Date:)\s(.+)/g );
-			chop($_) foreach (@list);
-			$msgInfoHash{ $k }{ From } = $list[0];
-			$msgInfoHash{ $k }{ Subject } = $list[1];
-			$msgInfoHash{ $k }{ SenderLocalDate } = $list[2];
+			foreach (@NeedHead) { $msgInfoHash{ $k }{ $_ } = $Head{ $_ } // ''; }
 			# информационная строка:
-			$msgInfoHash{ $k }{ ShortInfoString } = "$list[0] ($list[1]) ($list[2])";
-			$msgInfoHash{ $k }{ InfoString } = "От: $list[0]\nЗаголовок: $list[1]\nВремя отправления: $list[2]\nВнутреннее время: " . $msgInfoHash{ $k }{ INTERNALDATE };
+			$msgInfoHash{ $k }{ SInfStr } = "$msgInfoHash{ $k }{ From } ($msgInfoHash{ $k }{ Subject }) ($msgInfoHash{ $k }{ Date })";
+			$msgInfoHash{ $k }{ InfStr } = "От: $msgInfoHash{ $k }{ From }\nЗаголовок: $msgInfoHash{ $k }{ Subject }\n" .
+				"Время отправления: $msgInfoHash{ $k }{ Date }\nВнутреннее время: " . $msgInfoHash{ $k }{ INTERNALDATE };
 		}
 
 		my ($msgid, $string);
@@ -186,7 +194,7 @@ sub MailClient {
 			say $colorQuestions . 'Введите номер соответствующий сообщению для прочтения' . $colorDefault;
 			say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
 			for (@msgs) {
-				say $colorMenuNumber . "$_" . $colorMenuString . " -> " . $msgInfoHash{ $_ }{ ShortInfoString } . $colorDefault;
+				say $colorMenuNumber . "$_" . $colorMenuString . " -> " . $msgInfoHash{ $_ }{ SInfStr } . $colorDefault;
 			}
 			say $colorMenuNumber . "0" . $colorMenuExitString . " -> вернуться к выбору папки." . $colorDefault;
 			print $colorAnswerLine . "Выбранное сообщение - " . $colorDefault;
@@ -212,12 +220,14 @@ sub MailClient {
 			#p $hashref->{ $msgid }{ 'RFC822.TEXT' };
 			#p $string;
 			say $colorInfoString . '_____________________________________________________'. $colorDefault;
-			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfoString } . $colorDefault;
+			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfStr } . $colorDefault;
 
 			# обрабатываем сообщение
 			chomp($string);	# убираем символ переноса в конце
 			$string =~ s/.{1}$//;	# убираем символ в конце
-
+			# Проводим расшифрование текста
+			$string = decode_base64($string) if ($msgInfoHash{ $msgid }{ 'Content-Transfer-Encoding' } eq 'base64'); # расшифровываем из Base64
+			$string = Encode::decode("utf8", $string); # расшифровываем из utf8
 			# Расшифровываем текст (если указано)
 			if ($encode) {
 				# ToDo определение параметров для расшифрования
@@ -232,9 +242,6 @@ sub MailClient {
 			$string =~ s/(&lt;)/</g;
 			$string =~ s/(&gt;)/>/g;
 			$string =~ s/(&amp;)/&/g;
-
-			# кодируем в utf8
-			$string = Encode::decode("utf8", $string);
 
 			# выводим сообщение
 			say '-----------------------------------------------------';
@@ -295,6 +302,8 @@ sub SendMail {
 		my $msgMas = EncDecLong($body, $dictOne, $keyParamsOne);	# шифруем сообщение (разбивая на части если нужно)
 		$body = '';	$body .= $_->{msg} foreach ( @{ $msgMas } );	# собираем зашифрованный вариант в одно целое
 	}
+	$body = Encode::encode("utf8", $body);	# шифруем в utf8
+	$body = encode_base64($body);	# шифруем в base64 (чтобы не терять символы \r \n (\r = \r\n \n = \r\n))
 
 	# формируем сообщение
 	my $email = Email::Simple->create(
@@ -302,6 +311,8 @@ sub SendMail {
 			To      => $to,
 			From    => $imap->{User},
 			Subject => $subject,
+			'Content-Transfer-Encoding' => 'base64',
+			'Content-Type' => 'text/html; charset=utf-8',
 		],
 		body => $body,
 	);
