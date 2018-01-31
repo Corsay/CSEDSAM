@@ -4,6 +4,7 @@ use 5.010;
 use strict;
 use warnings;
 
+use JSON::XS;
 use Time::Local;
 
 =head1 NAME
@@ -84,17 +85,27 @@ sub LongTableGenerator {
 		1 - ссылка на хеш содержащий сгенерированную таблицу;
 		2 - название файла для сохранения таблицы.
 	Выходные параметры:
-		1 - итоговый статус выполнения выгрузки (0 - успех, 1..N - коды ошибок).
-	Возможные коды ошибок:
-		1 - ошибка создания/открытия выбранного файла
-		2 - ошибка записи в выбранный файл
-		...
+		Отстутствуют
+	Дополнение:
+		При ошибке выбрасывает die.
 =cut
 sub SaveTableToFile {
 	my $hash = shift;
 	my $filename = shift;
 
-	return 0;
+	# Если файл существует и нет права на запись в него, то ошибка - записи в выбранный файл
+	die "Error then write in file '$filename': File exists, but (-w) permission denied\n" if (-e $filename and !-w $filename);
+
+	# 1. Открываем указанный файл на запись
+	my $fh;
+	open ($fh, '>', $filename) or die "Error then open/create file '$filename': $!\n";
+	# 2. Переводим таблицу в JSON
+	my $json = JSON::XS::encode_json($hash);
+	# 3. Сохраняем полученный JSON в файл
+	print {$fh} $json;
+	# Закрываем файл
+	close $fh;
+	return;
 }
 
 =head2 LoadTableFromFile
@@ -103,12 +114,24 @@ sub SaveTableToFile {
 		1 - название файла для загрузки таблицы.
 	Выходные параметры:
 		1 - ссылка на хеш содержащий загруженную таблицу.
-		или undef в случае ошибки (открытие/чтение)
+	Дополнение:
+		При ошибке выбрасывает die.
 =cut
 sub LoadTableFromFile {
 	my $filename = shift;
-	my $hash;
 
+	# Если файл существует и нет права на чтение из него, то ошибка - чтения из выбранного файла
+	die "Error then read from file '$filename': File exists, but (-r) permission denied\n" if (-e $filename and !-r $filename);
+
+	# 1. Открываем указанный файл на чтение
+	my $fh;
+	open ($fh, '<', $filename) or die "Error then open file '$filename': $!\n";
+	# 2. Загружаем JSON из файла
+	my $json = <$fh>;
+	# 3. Переводим таблицу из JSON
+	my $hash = JSON::XS::decode_json($json);
+	# Закрываем файл
+	close $fh;
 	return $hash;
 }
 
