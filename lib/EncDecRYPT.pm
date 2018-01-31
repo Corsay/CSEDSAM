@@ -4,7 +4,7 @@ use 5.010;
 use strict;
 use warnings;
 
-use Time::Local;
+use TablesPRNG;
 
 =head1 NAME
 
@@ -140,34 +140,6 @@ sub EncDecLong {
 	return \@rezultMas;
 }
 
-
-=head1 Time
-=head2 TimePartAdd
-	Функция прибавляющая $defTimePartExpander (прирост времени) к временному интервалу.
-	Входные параметры:
-		хеш со временем для текущего ключа
-	Выходные параметры:
-		хеш с модифицированным временем для следующего ключа
-	Замечание:
-		$keyParams->{concat} после данной функции не валиден.
-=cut
-my $defTimePartExpander = 120;	# время в unix_time
-sub TimePartAdd {
-	my $keyParams = shift;
-	# получаем unix_timestamp
-	my $unix_timestamp = timelocal($keyParams->{seconds}, $keyParams->{minut}, $keyParams->{hour}, $keyParams->{day}, $keyParams->{month} - 1, $keyParams->{year});
-	$unix_timestamp += $defTimePartExpander;	# модифицируем
-	# формируем новые временные параметры
-	my @time = localtime($unix_timestamp);
-	$keyParams->{seconds} = $time[0];
-	$keyParams->{minut} = $time[1];
-	$keyParams->{hour} = $time[2];
-	$keyParams->{day} = $time[3];
-	$keyParams->{month} = $time[4] + 1;
-	$keyParams->{year} = $time[5] + 1900;
-	$keyParams->{WeekNum} = int($time[7] / 7) + 1;
-	return $keyParams;
-}
 
 =head1 Import\Unimport
 =cut

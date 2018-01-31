@@ -12,8 +12,6 @@ use Email::Sender::Transport::SMTP;
 
 use EncDecRYPT;
 
-use DDP;
-
 use utf8;
 binmode(STDOUT,':utf8');
 use Encode::IMAPUTF7;
@@ -109,6 +107,8 @@ sub MailClient {
 		Uid      => 1,
 	) or die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n";
 
+	# ToDo выходить если соединение не было успешным
+
 	# получаем с сервера список папок
 	my $folders = $imap->folders
 		or die $colorInfoErrorString . "Folders list Error: " . $imap->LastError . $colorDefault . "\n";
@@ -161,7 +161,7 @@ sub MailClient {
 		# Забираем информацию о сообщениях из текущей папки
 		# FLAGS \seen - Просмотрено
 		# INTERNALDATE - дата и время отправки по GMT
-		# Нужно достать From: Subject: Date: и INTERNALDATE
+		# Достаём From: Subject: Date: и INTERNALDATE
 		my $hashref = $imap->fetch_hash( qw/INTERNALDATE RFC822.HEADER RFC822.TEXT/ );	# FLAGS ENVELOPE BODYSTRUCTURE RFC822.SIZE
 		my %msgInfoHash = ();
 		for my $k (keys %$hashref) {
@@ -208,6 +208,7 @@ sub MailClient {
 
 			system('clear');
 			# ToDo проверить, периодически попадается(разово) в теле сообщения - "...FLAGS... UID..."
+			#use DDP;
 			#p $hashref->{ $msgid }{ 'RFC822.TEXT' };
 			#p $string;
 			say $colorInfoString . '_____________________________________________________'. $colorDefault;
@@ -222,7 +223,6 @@ sub MailClient {
 				# ToDo определение параметров для расшифрования
 
 				# Расшифровываем текст
-				#$string =~ s/\n//g;	# убираем \n во всей строке
 				my $msgMas = EncDecLong($string, $dictOne, $keyParamsOne);
 				$string = '';	$string .= $_->{msg} foreach ( @{ $msgMas } );
 			}
