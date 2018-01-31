@@ -130,21 +130,19 @@ sub MailClient {
 		$folderNum = <STDIN>;
 		chomp($folderNum);
 
+		system('clear');
 		# Прокерка валидности номера папки (только число от 0 до $#{$folders} + 2)
 		if ($folderNum - 2 > $#{$folders} or $folderNum !~ /^\d+$/) {
-			system('clear');
 			print $colorInfoErrorString . "Введен некорректный номер папки '$folderNum'\n" . $colorDefault;
 			next;
 		}
 		# Перейти к отправке сообщений
 		if ($folderNum - 1 == $#{$folders}) {
-			system('clear');
 			SendMail($imap, $encode); # вызов функции отправки сообщений
 			next;
 		}
 		# Выход
 		if ($folderNum - 2 == $#{$folders}) {
-			system('clear');
 			last;
 		}
 
@@ -154,11 +152,9 @@ sub MailClient {
 		# получаем список сообщений из данной папки
 		@msgs = $imap->messages or do {
 			# или возвращаемся к выбору папки если в выбранной нет ни одного письма
-			system('clear');
 			print $colorInfoErrorString . "Нет сообщений в папке '$curFolder'\n" . $colorDefault;
 			next;
 		};
-		system('clear');
 		# Забираем информацию о сообщениях из текущей папки
 		# ToDo вынести в отдельную функцию
 		# FLAGS \seen - Просмотрено
@@ -212,20 +208,18 @@ sub MailClient {
 			$msgid = <STDIN>;
 			chomp($msgid);
 
+			system('clear');
 			# Возврат
 			if ($msgid == 0) {
-				system('clear');
 				last;
 			}
 			# получаем сообщение
 			$string = $imap->body_string($msgid) or do {
 				# или выводим сообщения с запрошенным номером нет
-				system('clear');
 				print $colorInfoErrorString . "Нет сообщения с таким номером($msgid) в папке '$curFolder'\n" . $colorDefault;
 				next;
 			};
 
-			system('clear');
 			# ToDo проверить, периодически попадается(разово) в теле сообщения - "...FLAGS... UID..."
 			#use DDP;
 			#p $hashref->{ $msgid }{ 'RFC822.TEXT' };
