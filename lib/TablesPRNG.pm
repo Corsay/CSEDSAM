@@ -4,6 +4,8 @@ use 5.010;
 use strict;
 use warnings;
 
+use Math::Random::MT::Auto;
+
 use JSON::XS;
 use Time::Local;
 
@@ -40,7 +42,8 @@ use Time::Local;
 				* номер недели	- weekNum	- значение (1 - 52);
 				* часы		- hour	- значение (0 - 23);
 				* минуты	- minut	- значение (0 - 59);
-				* ключа		- key	- значение (короткая гамма - т.е. если длины не хватает, то вызывать продолжение генерации с ГПСЧ).
+				* ключа		- key	- значение (короткая гамма - т.е. если длины не хватает, то вызывать продолжение генерации с ГПСЧ);
+				* вектор состояния - StateVect - ссылка на массив (вектор состояний для догенерации ключевой полседовательности).
 		Второй (LongTableGenerator):
 			ключ - конкатенация (с разделением через '-') месяца, дня, часов и минут (пример: 12-31-23-59)
 			значение - ссылка на хеш, содержащий:
@@ -52,21 +55,38 @@ use Time::Local;
 =cut
 
 
+# Используемые переменные
+my $SHORT_KEY_LEN = 32; # длина короткого ключа в байтах (2^5).
+my $LONG_KEY_LEN = 128; # длина длинного ключа в байтах (2^7).
+my $MAX_KEY_LEN = 256; # максимальная длина ключа в байтах (для догенерации) (2^8).
+my $KEY_COLLISION_REPEAT = 3; # максимальное количество повторов перегенерации ключа
+
+
 =head1 Generate Tables
 =head2 ShortTableGenerator
 	Функция, которая осуществляет генерацию таблицы первого типа (номера недели, часов и минут) (короткие ключи)
 	Входные параметры:
-		1 - начало периода;
-		2 - конец периода.
+		1 - начало периода (ссылка на хеш - секунды, минуты, часы; день, месяц, год, номер недели);
+		2 - конец периода (ссылка на хеш).
 	Выходные параметры:
 		1 - ссылка на хеш содержащий сгенерированную таблицу.
 =cut
 sub ShortTableGenerator {
-
+	my $startParams = shift;
+	my $endParams = shift;
+	return TableGenerator(
+		$startParams,
+		$endParams,
+		1,
+		$SHORT_KEY_LEN,
+		518400,	# при коллизии добавить 6 дней (до начала следующей недели)
+		[ qw /WeekNum hour minut/ ],
+		[ qw /WeekNum hour minut key day stateVect/ ]
+	);
 }
 
 =head2 LongTableGenerator
-	Функция, которая осуществляет генерацию таблицы второго типа (месяца, дня, часов и минут) (длинные ключи)
+	Функция, которая осуществляет генерацию таблицы первого типа (месяца, дня, часов и минут) (длинные ключи)
 	Входные параметры:
 		1 - начало периода;
 		2 - конец периода.
@@ -74,7 +94,136 @@ sub ShortTableGenerator {
 		1 - ссылка на хеш содержащий сгенерированную таблицу.
 =cut
 sub LongTableGenerator {
+	my $startParams = shift;
+	my $endParams = shift;
+	return TableGenerator(
+		$startParams,
+		$endParams,
+		0,
+		$LONG_KEY_LEN,
+		undef,	# при коллизии добавить значение по умолчанию
+		[ qw /month day hour minut/ ],
+		[ qw /month day hour minut key/ ]
+	);
+}
 
+=head2 TableGenerator
+	Функция, которая осуществляет генерацию таблицы выбранного типа
+	Входные параметры:
+		1 - начало периода (ссылка на хеш - секунды, минуты, часы; день, месяц, год, номер недели);
+		2 - конец периода (ссылка на хеш);
+		3 - тип таблицы для генерации; (0 - длинные ключи, 1 - короткие ключи)
+		4 - число секунд в unix_time, которое прибавлять в случае коллизии (при добавлении в хеш, когда там уже существует ключ с подобной конкатенацией параметров)
+		5 - ссылка на массив параметров для конкатенации; (в порядке следования нужном в конкатенации)
+		6 - ссылка на массив параметров для итогового хеша.
+	Выходные параметры:
+		1 - ссылка на хеш содержащий сгенерированную таблицу.
+=cut
+sub TableGenerator {
+	my $startParams = shift;
+	my $endParams = shift;
+	my $tableType = shift;
+	my $keyLen = shift;
+	my $TimePartExpander = shift;
+	my $concatFields = shift;
+	my $hashFields = shift;
+	my %hashTable = ();	# результирующая таблица
+	my %hashKeys = ();	# хеш ключей: ключ => 1
+
+	# ToDo проверить наличие параметров
+
+	my $prng = Math::Random::MT::Auto->new();	# ГПСЧ
+
+	# получаем для них unix_time
+	$startParams->{ unix_timestamp } = timegm($startParams->{seconds}, $startParams->{minut}, $startParams->{hour}, $startParams->{day}, $startParams->{month} - 1, $startParams->{year});
+	$endParams->{ unix_timestamp } = timegm($endParams->{seconds}, $endParams->{minut}, $endParams->{hour}, $endParams->{day}, $endParams->{month} - 1, $endParams->{year});
+
+	while ($startParams->{ unix_timestamp } <= $endParams->{ unix_timestamp }) {
+		# формируем нужный формат конкатенации
+		$startParams->{concat} = '';
+		$startParams->{concat} .= $startParams->{ $_ } . "-" foreach @{ $concatFields };
+		chop( $startParams->{concat} );
+
+		# При коротом типе добавляем в список элементов stateVect
+		if ($tableType == 1) {
+			my @stateVect = $prng->get_state();	# вектор состояния
+			$startParams->{ stateVect } = \@stateVect;
+		}
+
+		# генерация ключа
+		my $key = GenerateKey( \%hashKeys, $keyLen, $prng);
+		die "Long Key Table Generation: too many collisions.\n" unless defined $key;
+		$startParams->{ key } = $key;
+
+		# если ключ уже существует
+		if ( exists $hashTable{ $startParams->{concat} } ) {
+			# то для таблицы первого типа прибавляем $TimePartExpander (или можно при необходимости применить методы обхода коллизий)
+			$startParams = TimePartAdd( $startParams, $TimePartExpander );	# $startParams->{concat} после данной функции не валиден.
+			next;
+		}
+		else {
+			# Добавляем запись о нужных параметрах в хеш
+			$hashTable{ $startParams->{concat} } { $_ } = $startParams->{ $_ } foreach @{ $hashFields };
+		}
+
+		# Делаем приращение к начальному параметру времени
+		$startParams = TimePartAdd( $startParams );	# $startParams->{concat} после данной функции не валиден.
+	}
+
+	# возвращаем полученный хеш
+	return \%hashTable;
+}
+
+=head2 GenerateKey
+	Функция, которая генерирует ключ нужной длины (в байтах)
+	Входные параметры:
+		1 - ссылка на хеш ключей; (для исключения дублирования)
+		2 - Ожидаемая длина ключа;
+		3 - ГПСЧ; (экземпляр класса) (опционально) (чтобы не инициализировать его постоянно при частом вызове функции генерации ключа)
+		4 - Параметры генерации ключа. (ссылка на вектор состояний) (опционально)
+	Выходные параметры:
+		1 - сгенерированный ключ
+=cut
+sub GenerateKey {
+	my $hashKeys = shift;
+	my $keyLen = shift;
+	my $prng = shift;
+	my $stateVect = shift;
+
+	# ToDo проверка корректности параметров
+
+	# если не указан ГПСЧ, то инициализировать его тут
+	$prng = Math::Random::MT::Auto->new() unless defined $prng;
+	# если указан вектор состояния, то использовать его при генерации
+	$prng->set_state($stateVect) if defined $stateVect;
+
+	# цикл генерации ключа
+	my $key = '';
+	my $key_iter_num = 0;
+	while ($key_iter_num < $KEY_COLLISION_REPEAT) {
+		# формируем ключ заданной длины
+		$key = "$prng";
+		while (length($key) < $keyLen) {
+			$key .= "$prng";
+		}
+		# обрезаем до нужной длины
+		$key = substr($key, 0, $keyLen) if (length($key) > $keyLen);
+
+		# проверяем что такого ключа еще не было, добавляем его в хеш ключей и выходим из цикла
+		# если был, увеличиваем и повторяем операцию KEY_COLLISION_REPEAT раз
+		if ( exists $hashKeys->{ $key } ) {
+			$key_iter_num++;
+		}
+		else {
+			$hashKeys->{ $key } = 1;
+			last;
+		}
+	}
+	# проверяем что ключ сгенерировался
+	return undef if ($key_iter_num >= $KEY_COLLISION_REPEAT);
+
+	# возвращаем полученный ключ
+	return $key;
 }
 
 
@@ -140,18 +289,21 @@ sub LoadTableFromFile {
 =head2 TimePartAdd
 	Функция прибавляющая $defTimePartExpander (прирост времени) к временному интервалу.
 	Входные параметры:
-		хеш со временем для текущего ключа
+		1 - хеш со временем для текущего ключа;
+		2 - время которое добавлять вместо стандартного (в unix_time).
 	Выходные параметры:
-		хеш с модифицированным временем для следующего ключа
+		1 - хеш с модифицированным временем для следующего ключа
 	Замечание:
 		$keyParams->{concat} после данной функции не валиден.
 =cut
 my $defTimePartExpander = 120;	# время в unix_time
 sub TimePartAdd {
 	my $keyParams = shift;
+	my $TimePartExpander = shift;
+	$TimePartExpander = $defTimePartExpander unless defined $TimePartExpander;
 	# получаем unix_timestamp
 	my $unix_timestamp = timegm($keyParams->{seconds}, $keyParams->{minut}, $keyParams->{hour}, $keyParams->{day}, $keyParams->{month} - 1, $keyParams->{year});
-	$unix_timestamp += $defTimePartExpander;	# модифицируем
+	$unix_timestamp += $TimePartExpander;	# модифицируем
 	# формируем новые временные параметры
 	my @time = gmtime($unix_timestamp);
 	$keyParams->{seconds} = $time[0];
@@ -161,6 +313,7 @@ sub TimePartAdd {
 	$keyParams->{month} = $time[4] + 1;
 	$keyParams->{year} = $time[5] + 1900;
 	$keyParams->{WeekNum} = int($time[7] / 7) + 1;
+	$keyParams->{unix_timestamp} = $unix_timestamp;
 	return $keyParams;
 }
 
