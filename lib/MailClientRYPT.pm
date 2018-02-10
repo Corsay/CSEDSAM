@@ -17,6 +17,8 @@ use utf8;
 binmode(STDOUT,':utf8');
 use Encode::IMAPUTF7;
 
+use YAML::Tiny;
+
 =head1 NAME
 
     MailClientRYPT - Client for sending and receiving mail with encryption!
@@ -85,29 +87,49 @@ my $colorMenuExitString = "\x1b[0m";
 my $colorInfoString = "\x1b[32m";
 my $colorInfoErrorString = "\x1b[1;31m";
 
+=head1
+	Спецификация файла конфигурации:
+	MailClient:
+		InboxMailServer:             # сервер входящей почты
+			Server: 'imap.yandex.ru'  # адрес
+			Port: 993                 # порт
+			Ssl: 1                    # использовать ли ssl
+			Uid: 1                    # uid
+		OutboxMailServer:            # сервер исходящей почты
+			host: 'smtp.yandex.ru'    # адрес
+			port: 465                 # порт
+			ssl: 1                    # использовать ли ssl
+		encode: '1'                  # Щифровать и расшифровывать ли сообщения (0 - нет, 1 - да)
+		dict_type: '0'               # Тип используемого словаря (0 - первый тип(короткие ключи), 1 - второй тип(длинные ключи))
+		date_params_type: '0'        # Способ определения параметров даты сообщения (0 - дата вводится в ручную(по Гринвичу), 1 - дата берется из заголовка сообщения(локальная дата отправителя))
+=cut
+our $MailClientParams;	# переменная для загрузки в неё конфигурации
+
 =head1 MailClient
 	Функция, в которой осуществляется:
 		1 - подключение к почтовому серверу
 		2 - после удачного подключения выводится список доступных папок
-		3 - при выборе папке выводится список доступных сообщений
+		3 - при выборе папки выводится список доступных сообщений
 		4 - при выборе сообщения выводится его содержимое
 =cut
 sub MailClient {
-	my $server = shift;
 	my $user = shift;
 	my $password = shift;
-	my $encode = shift;	# включать ли шифрование
-	$encode = 1 unless (defined $encode);	# по-умолчанию -> включать
+
+	# загрузка конфигурации из файла MailClient.yml
+	$MailClientParams = YAML::Tiny->read('MailClient.yml');
+	$MailClientParams = $MailClientParams->[0];
+	my $encode = $MailClientParams->{ MailClient }{ encode } // 1;	# включать ли шифрование (по-умолчанию -> включать)
+	# $MailClientParams->{ MailClient }{ dict_type };
+	# $MailClientParams->{ MailClient }{ date_params_type };
+
+	# Cобираем настройки согласно конфигурации + добавляем User и Password
+	my %conParams = ( %{ $MailClientParams->{ MailClient }{ InboxMailServer } } );
+	$conParams{ User } = $user;
+	$conParams{ Password } = $password;
 
 	# устанавливаем соединение с почтовым сервером
-	my $imap = Mail::IMAPClient->new(
-		Server   => $server,
-		User     => $user,
-		Password => $password,
-		Ssl      => 1,
-		Uid      => 1,
-	) or die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n";
-
+	my $imap = Mail::IMAPClient->new( %conParams ) or die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n";
 	# выходить с сообщением об ошибке, если соединение с почтовым сервером не было успешным
 	die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n" unless ( defined $imap->{Server} );
 
@@ -129,6 +151,7 @@ sub MailClient {
 			say $colorMenuNumber . $i++ . $colorMenuString . " -> " . Encode::decode("IMAP-UTF-7", $_) . $colorDefault;
 		}
 		say $colorMenuNumber . $i++ . $colorMenuSpecString . " -> перейти к отправке сообщений." . $colorDefault;
+		# ToDo Добавить отсылку на функцию работы с конфигурацией
 		say $colorMenuNumber . $i . $colorMenuExitString . " -> разлогиниться и выйти из почтового клиента." . $colorDefault;
 		print $colorAnswerLine . "Выбранная папка - " . $colorDefault;
 		$folderNum = <STDIN>;
@@ -142,7 +165,7 @@ sub MailClient {
 		}
 		# Перейти к отправке сообщений
 		if ($folderNum - 1 == $#{$folders}) {
-			SendMail($imap, $encode); # вызов функции отправки сообщений
+			SendMail($imap); # вызов функции отправки сообщений
 			next;
 		}
 		# Выход
@@ -284,7 +307,7 @@ sub MailClient {
 =cut
 sub SendMail {
 	my $imap = shift;
-	my $encode = shift;
+	my $encode = $MailClientParams->{ MailClient }{ encode } // 1;	# включать ли шифрование (по-умолчанию -> включать)
 
 	my ($to, $subject, $body);
 	say $colorInfoString . '_____________________________________________________' . $colorDefault;
@@ -329,14 +352,12 @@ sub SendMail {
 		],
 		body => $body,
 	);
-	my $transport = Email::Sender::Transport::SMTP->new({
-		host => 'smtp.yandex.ru',
-		port => 465,
-		ssl => 1,
-		sasl_username => $imap->{User},
-		sasl_password => $imap->{Password},
-	});
-
+	# получаем параметры из конфига для сервера через который будем отправлять сообщение
+	my %conParams = ( %{ $MailClientParams->{ MailClient }{ OutboxMailServer } } );
+	$conParams{ sasl_username } = $imap->{User};
+	$conParams{ sasl_password } = $imap->{Password};
+	# сообщаем через какой сервер будет отправлять сообщение
+	my $transport = Email::Sender::Transport::SMTP->new( %conParams );
 	# отправляем сообщение
 	sendmail(
 		$email,
