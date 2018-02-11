@@ -167,5 +167,5 @@ EncDecLongTests( $msg, $dictTwo, $keyParamsTwo, 'Len last part of msg < len key'
 
 
 ##### 4. Повторное использование ключа - результат возвращаемый функцией шифрования - undef
-isnt(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2), undef, 'Try to use key second time - not undef returned.');
+isnt(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2), undef, 'Try to use key first time - not undef returned.');
 is(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2), undef, 'Try to use key second time - undef returned.');
