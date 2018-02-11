@@ -307,6 +307,31 @@ sub TimePartAdd {
 	my $unix_timestamp = timegm($keyParams->{seconds}, $keyParams->{minut}, $keyParams->{hour}, $keyParams->{day}, $keyParams->{month} - 1, $keyParams->{year});
 	$unix_timestamp += $TimePartExpander;	# модифицируем
 	# формируем новые временные параметры
+	$keyParams = TimeHashFromUnixTime($unix_timestamp, $keyParams);
+	return $keyParams;
+}
+
+=head2 TimeHashFromUnixTime
+	Функция записывающая время согласно переданому unix_timestamp в хеш
+	Входные параметры:
+		1 - unix_timestamp;
+		2 - хеш для добавления результата.
+	Выходные параметры:
+		1 - хеш с временем согласно введенному unix_timestamp
+	Формат выходного хеша:
+		seconds => секунд
+		minut   => минута
+		hour    => час
+		day     => день меясца
+		month   => номер месяца (1..12)
+		year    => год
+		wday    => номер дня недели (0 - воскресение .. 6 - суббота)
+		WeekNum => номер недели
+		unix_timestamp => время в формате unix_time
+=cut
+sub TimeHashFromUnixTime {
+	my $unix_timestamp = shift;
+	my $keyParams = shift;
 	my @time = gmtime($unix_timestamp);
 	$keyParams->{seconds} = $time[0];
 	$keyParams->{minut} = $time[1];
@@ -314,14 +339,16 @@ sub TimePartAdd {
 	$keyParams->{day} = $time[3];
 	$keyParams->{month} = $time[4] + 1;
 	$keyParams->{year} = $time[5] + 1900;
+	$keyParams->{wday} = $time[6];	# день недели (0 - воскресение .. 6 - суббота)
 	$keyParams->{WeekNum} = int($time[7] / 7) + 1;
 	$keyParams->{unix_timestamp} = $unix_timestamp;
 	return $keyParams;
 }
 
+
 =head1 Import\Unimport
 =cut
-my @ImportedByDefault = qw/ShortTableGenerator LongTableGenerator GenerateKey SaveTableToFile LoadTableFromFile TimePartAdd/;
+my @ImportedByDefault = qw/ShortTableGenerator LongTableGenerator GenerateKey SaveTableToFile LoadTableFromFile TimePartAdd TimeHashFromUnixTime/;
 sub def_import {
 	my $pkg = shift;
 	{

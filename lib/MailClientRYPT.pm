@@ -20,6 +20,10 @@ use Encode::IMAPUTF7;
 
 use YAML::Tiny;
 
+use locale;	# Для вывода AM\PM
+use POSIX qw(strftime locale_h);
+setlocale(LC_TIME, "C");
+
 =head1 NAME
 
     MailClientRYPT - Client for sending and receiving mail with encryption!
@@ -49,17 +53,6 @@ my $dictFiles = {
 };
 my $dictCurrentFile;
 
-$currentKeyParams = {
-	seconds	=> 10,
-	minut	=> 10,
-	hour	=> 10,
-	day	=> 26,
-	month	=> 3,
-	year	=> 2018,
-	WeekNum	=> 13,
-	concat	=> "13-10-10"
-};
-
 # цвета для полей:
 my $colorDefault = "\x1b[0m";
 my $colorQuestions = "\x1b[0m";
@@ -88,9 +81,8 @@ my $colorInfoErrorString = "\x1b[1;31m";
 		dict_type: '0'               # Тип используемого словаря (0 - первый тип(короткие ключи), 1 - второй тип(длинные ключи))
 		date_params_type: '0'        # Способ определения параметров даты сообщения (0 - дата вводится в ручную(по Гринвичу), 1 - дата берется из заголовка сообщения(локальная дата отправителя))
 =cut
-my $MailClientParams;	# переменная для загрузки в неё конфигурации
-my $encode;
-my $clearKey;
+# переменные для загрузки в них конфигурации
+my ($MailClientParams, $encode, $clearKey, $dictType, $date_params_type) = (undef, 1, 1, 1, 1);
 
 =head1 MailClient
 	Функция, в которой осуществляется:
@@ -108,7 +100,8 @@ sub MailClient {
 	$MailClientParams = $MailClientParams->[0];
 	$encode = $MailClientParams->{ MailClient }{ encode } // 1;	# включать ли шифрование (по-умолчанию -> включать)
 	$clearKey = $MailClientParams->{ MailClient }{ clearKey } // 1;	# зачищать ли ключи (по-умолчанию -> да)
-	# $MailClientParams->{ MailClient }{ date_params_type };
+	# Способ определения параметров даты сообщения (0 - дата вводится в ручную(по Гринвичу), 1 - дата берется из заголовка сообщения(локальная дата отправителя))
+	$date_params_type = $MailClientParams->{ MailClient }{ date_params_type } // 1; # (по-умолчанию 1)
 
 	# Cобираем настройки согласно конфигурации + добавляем User и Password
 	my %conParams = ( %{ $MailClientParams->{ MailClient }{ InboxMailServer } } );
@@ -116,7 +109,7 @@ sub MailClient {
 	$conParams{ Password } = $password;
 
 	# Получаем тип активной таблицы (согласно конфигурации) и запоминаем в каком файле должна находиться соответствующая таблица
-	my $dictType = $MailClientParams->{ MailClient }{ dict_type };
+	$dictType = $MailClientParams->{ MailClient }{ dict_type } // 1;	# (по умолчанию 1 (второго типа))
 	$dictCurrentFile = $dictFiles->{$dictType};
 	# Если файла с таблицей(словарем) нет, то создать его и сохранить в файл
 	unless ( -e $dictCurrentFile ) {
@@ -124,17 +117,24 @@ sub MailClient {
 		# начальный период - текущий день (по-Гринвичу)
 		my ($startParams, $endParams);
 		# берем текущее время
-		my @time = gmtime(time);
-		$startParams->{seconds} = $time[0]; $startParams->{minut} = 0; $startParams->{hour} = $time[2];
-		$startParams->{day} = $time[3]; $startParams->{month} = $time[4] + 1; $startParams->{year} = $time[5] + 1900;
-		$startParams->{WeekNum} = int($time[7] / 7) + 1;
+		$startParams = TimeHashFromUnixTime(time, $startParams);
+		# приводим минуты к кратному 2-м виду
+		$startParams ->{minut} = int($startParams ->{minut} / 2) * 2;
+		#my @time = gmtime(time);
+		#$startParams->{seconds} = $time[0]; $startParams->{minut} = 0; $startParams->{hour} = $time[2];
+		#$startParams->{day} = $time[3]; $startParams->{month} = $time[4] + 1; $startParams->{year} = $time[5] + 1900;
+		#$startParams->{wday} = $time[6]; $startParams->{WeekNum} = int($time[7] / 7) + 1;
 		# приведем начальную дату к понедельнику текущей недели
-		$startParams = TimePartAdd( $startParams, -86400 * ($time[6] - 1) );
+		#$startParams = TimePartAdd( $startParams, -86400 * ($startParams->{wday} - 1) );
 		# конечный период + 51/52 недели ( 30844800 + день(86400) / 31449600 ).
-		my $endStartDiff;
-		if    ($dictType eq '0') { $endStartDiff = 30844800 + 86400; }
-		elsif ($dictType eq '1') { $endStartDiff = 31449600; }
+		my $endStartDiff = 31449600;
+		#if    ($dictType eq '0') { $endStartDiff = 30844800 + 86400; }
+		#elsif ($dictType eq '1') { $endStartDiff = 31449600; }
 		$endParams = TimePartAdd( $startParams, $endStartDiff - 120 );
+
+		# TODO ПОФИКСИТЬ ПРОБЛЕМУ ГЕНЕРАЦИИ, ВЫБОР ВРЕМЕНИ НАЧАЛА И ОКОНЧАНИЯ НЕВЕРНЫЙ
+		#$startParams = { seconds => 0, minut => 0, hour => 0, day => 1, month => 1, year => 2018, WeekNum => 1, };
+		#$endParams = { seconds => 0, minut => 58, hour => 23, day => 30, month => 12, year => 2018, };
 
 		# формируем нужный словарь на 52 недели
 		if     ($dictType eq '0') { $currentDict = ShortTableGenerator( $startParams, $endParams ); }
@@ -151,10 +151,30 @@ sub MailClient {
 		print 'Рекомендуется позаботиться о её передаче собеседнику до дальнейшего использования почтового клиента.' . "\n\n";
 	}
 	else { # иначе загрузить из существующего файла
-		print "\n" . 'Загрузка таблицы ключей из файла ' . $dictCurrentFile . "\n";
+		print "\n" . 'Загрузка таблицы ключей из файла ' . $dictCurrentFile . " (занимает около 5 секунд)\n";
 		$currentDict = LoadTableFromFile( $dictCurrentFile );
 		print 'Таблица ключей загружена' . "\n\n";
 	}
+
+=debug
+	# проверка наличия всех ключей в словаре первого типа
+	my $flag = 1;
+	for my $i (1..52) {
+		for my $j (0..23) {
+			my $k = 0;
+			while ($k < 60) {
+				my $concat = "$i-$j-$k";
+				unless ( exists $currentDict->{ $concat } ) {
+					$flag = 0;
+					last;
+				}
+				$k += 2;
+			}
+		}
+	}
+	if ($flag) { say "Exists All keys in dict type One"; }
+	else { say "bad"; }
+=cut
 
 
 
@@ -291,7 +311,9 @@ sub MailClient {
 			$string = Encode::decode("utf8", $string); # расшифровываем из utf8
 			# Расшифровываем текст (если указано)
 			if ($encode) {
-				# ToDo определение параметров для расшифрования
+				# получение временных параметров из заголовка сообщения
+				$currentKeyParams = StringToTimeParams( $msgInfoHash{ $msgid }{ Date } );
+				# ToDo реализовать оба варианта получения временных параметров
 
 				# Расшифровываем текст
 				my $msgMas = EncDecLong($string, $currentDict, $currentKeyParams, undef, $clearKey);
@@ -363,13 +385,26 @@ sub SendMail {
 
 	# шифруем текст (если указано)
 	if ($encode) {
-		# ToDo определение параметров для шифрования (они же временные параметры для отправки сообщения)
+		# проверяем что хватит времени для отправки сообщения во время (если не хватает(минимум требуем 30 секунд), предупреждаем пользователя и выжидаем)
+		# ToDo переделать под второй поток - который будет отправлять сообщения по мере необходимости
+
+
+		# формируем время отправления (берем текущее)
+		my $time = strftime "%a, %e %b %Y %H:%M:%S +0000", gmtime;
+		$currentKeyParams = StringToTimeParams( $time );
+		# ToDo реализовать оба варианта получения временных параметров
+
 
 		# шифруем текст
 		my $msgMas = EncDecLong($body, $currentDict, $currentKeyParams, undef, $clearKey);	# шифруем сообщение (разбивая на части если нужно)
 		$body = '';	$body .= $_->{msg} foreach ( @{ $msgMas } );	# собираем зашифрованный вариант в одно целое
 
-		# ToDo проверяем результат шифрования на undef - ошибка повторного использования ключа(возможно устарела таблица, или некорректность дат)
+		# проверяем результат шифрования на (пустоту) - ошибка повторного использования ключа(возможно устарела таблица, или некорректность дат)
+		unless ($body) {
+			system('clear');
+			print $colorInfoErrorString . "Ошибка при шифровании сообщения, ключ на данный период уже использован, повторите попытку позже." . $colorDefault . "\n";
+			return;
+		}
 	}
 	$body = Encode::encode("utf8", $body);	# шифруем в utf8
 	$body = encode_base64($body);	# шифруем в base64 (чтобы не терять символы \r \n (\r = \r\n \n = \r\n))
@@ -391,7 +426,7 @@ sub SendMail {
 	$conParams{ sasl_password } = $imap->{Password};
 	# сообщаем через какой сервер будет отправлять сообщение
 	my $transport = Email::Sender::Transport::SMTP->new( %conParams );
-	# отправляем сообщение
+	# отправляем сообщение (тут порой может подтормознуть)
 	sendmail(
 		$email,
 		{
@@ -409,9 +444,73 @@ sub SendMail {
 }
 
 
+=head1 Time
+=head2 StringToTimeParams
+	Функция принимающая на вход строку и возвращающая хеш со временем приведенным к gmt и нужным форматом конкатенации
+	Форматы входной строки:
+		1 - "Sun, 11 Feb 2018 19:38:39 +0300"
+		день недели, день месяц(словом) год часы:минуты:секунды ЗнакРазницы(+-)ЧасыМинуты (разница localtime отравителя от gmt)
+		2 - "11 Feb 2018 19:38:39 +0300"
+		день месяц(словом) год часы:минуты:секунды ЗнакРазницы(+-)ЧасыМинуты (разница localtime отравителя от gmt)
+	Формат выходного хеша:
+		seconds => секунд
+		minut   => минута
+		hour    => час
+		day     => день меясца
+		month   => номер месяца (1..12)
+		year    => год
+		wday    => номер дня недели (0 - воскресение .. 6 - суббота)
+		WeekNum => номер недели
+		unix_timestamp => время в формате unix_time
+		concat  => конкатенация  согласно формату используемого словаря (таблицы ключей)
+=cut
+my $monthWordToDict = {	# хеш конвертации сокращенного названия месяца в число (номер месяца 1..12)
+	'Jan' => 1, 'Feb' => 2, 'Mar' => 3, 'Apr' => 4, 'May' => 5, 'June' => 6,
+	'July' => 7, 'Aug'  => 8, 'Sept' => 9, 'Oct' => 10, 'Nov' => 11, 'Dec' => 12,
+};
+sub StringToTimeParams {
+	my $dateSTR = shift;
+
+	# забираем параметры
+	#                день месяцБуквами  год   часов  минут секунд знакКонвертации  числоКонвертацииЧасов числоКонвертацииМинут
+	#                  0        1        2      3      4     5            6               7                      8
+	my @params = my ($day, $monthWord, $year, $hour, $min, $sec, $localPartConvSign, $localPartConvHour, $localPartConvMin) =
+		$dateSTR =~ /(\d+)\s(\w+)\s(\d{4})\s(\d+):(\d+):(\d+)\s(.)(\d{2})(\d{2})$/;
+
+	# забираем параметры в хеш параметров
+	my $keyParams = {
+		seconds => $params[5],
+		minut   => $params[4],
+		hour    => $params[3],
+		day     => $params[0],
+		month   => $monthWordToDict->{ $params[1] },	# необходима конвертация из буквенного представления в числовое (от 1 до 12)
+		year    => $params[2],
+	};
+
+	# корректируем параметры согласно считанным параметрам (знакКонвертации числоКонвертацииЧасов числоКонвертацииМинут)
+	# рассчитаем число секунд для добавления(уменьшения)
+	my $additionalTime = $params[7] * 3600 + $params[8] * 60;
+	# '+' это больше относительно GMT, '-' это меньше относительно GMT
+	$additionalTime *= -1 if ($params[6] eq '+');
+	$keyParams = TimePartAdd( $keyParams, $additionalTime );
+	# корректируем минуты (кратность 2-м)
+	$keyParams->{minut} = int($keyParams->{minut} / 2) * 2;
+
+	# формируем нужный формат конкатенации
+	if ($dictType eq '0') { # первый (конкатенация (с разделением через '-') номера недели, часов и минут (пример: 1-10-06))
+		$keyParams->{concat} = $keyParams->{WeekNum} . "-" . $keyParams->{hour} . "-" . $keyParams->{minut};
+	}
+	elsif ($dictType eq '1') { # второй (конкатенация (с разделением через '-') месяца, дня, часов и минут (пример: 12-31-23-59))
+		$keyParams->{concat} = $keyParams->{month} . "-" . $keyParams->{day} . "-" . $keyParams->{hour} . "-" . $keyParams->{minut};
+	}
+	# возвращаем итоговый хеш
+	return $keyParams;
+}
+
+
 =head1 Import\Unimport
 =cut
-my @ImportedByDefault = qw/MailClient/;
+my @ImportedByDefault = qw/MailClient StringToTimeParams/;
 sub def_import {
 	my $pkg = shift;
 	{

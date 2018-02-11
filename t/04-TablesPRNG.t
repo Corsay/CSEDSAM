@@ -7,7 +7,7 @@ use Test::More;
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 
-plan tests => 23;
+plan tests => 24;
 
 use TablesPRNG;
 
@@ -134,6 +134,23 @@ $hashTable     = AddTimeMeter(\@timingMasShor, \&ShortTableGenerator, [ $startPa
 $hashTableLong = AddTimeMeter(\@timingMasLong, \&LongTableGenerator,  [ $startParams, $endParams ], ' Long  : 262080 :');
 is( scalar keys %{$hashTable}, 37440, 'Short table generator: 52 week key count check (37440)');
 is( scalar keys %{$hashTableLong}, 262080, 'Long table generator: 52 week key count check (262080)');
+
+# проверка на наличие всех ключей
+my $flag = 1;
+for my $i (1..52) {
+	for my $j (0..23) {
+		my $k = 0;
+		while ($k < 60) {
+			my $concat = "$i-$j-$k";
+			unless ( exists $hashTable->{ $concat } ) {
+				$flag = 0;
+				last;
+			}
+			$k += 2;
+		}
+	}
+}
+ok($flag, "Exists All keys in dict type One");
 
 
 
