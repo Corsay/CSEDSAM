@@ -10,6 +10,7 @@ use Email::Simple;
 use Email::Sender::Simple qw(sendmail);
 use Email::Sender::Transport::SMTP;
 
+use TablesPRNG;
 use EncDecRYPT;
 use MIME::Base64;
 
@@ -40,40 +41,23 @@ use YAML::Tiny;
 
 # ToDo использовать ООП
 
-# ToDo временные ключевые параметры
-my $dictOne = {
-	"2-10-10" => { WeekNum	=> 2, hour	=> 10, minut	=> 10, key	=> "123456", },
-	"2-10-12" => { WeekNum	=> 2, hour	=> 10, minut	=> 12, key	=> "789012", },
-	"2-10-14" => { WeekNum	=> 2, hour	=> 10, minut	=> 14, key	=> "345678", },
-	"2-10-16" => { WeekNum	=> 2, hour	=> 10, minut	=> 16, key	=> "234567", },
-	"2-10-18" => { WeekNum	=> 2, hour	=> 10, minut	=> 18, key	=> "234567", },
-	"2-10-20" => { WeekNum	=> 2, hour	=> 10, minut	=> 20, key	=> "234567", },
-	"2-10-22" => { WeekNum	=> 2, hour	=> 10, minut	=> 22, key	=> "234567", },
-	"2-10-24" => { WeekNum	=> 2, hour	=> 10, minut	=> 24, key	=> "234567", },
-	"2-10-26" => { WeekNum	=> 2, hour	=> 10, minut	=> 26, key	=> "234567", },
-	"2-10-28" => { WeekNum	=> 2, hour	=> 10, minut	=> 28, key	=> "234567", },
-	"2-10-30" => { WeekNum	=> 2, hour	=> 10, minut	=> 30, key	=> "234567", },
-	"2-10-32" => { WeekNum	=> 2, hour	=> 10, minut	=> 32, key	=> "234567", },
-	"2-10-34" => { WeekNum	=> 2, hour	=> 10, minut	=> 34, key	=> "234567", },
-	"2-10-36" => { WeekNum	=> 2, hour	=> 10, minut	=> 36, key	=> "234567", },
-	"2-10-38" => { WeekNum	=> 2, hour	=> 10, minut	=> 38, key	=> "234567", },
-	"2-10-40" => { WeekNum	=> 2, hour	=> 10, minut	=> 40, key	=> "234567", },
-	"2-10-42" => { WeekNum	=> 2, hour	=> 10, minut	=> 42, key	=> "234567", },
-	"2-10-44" => { WeekNum	=> 2, hour	=> 10, minut	=> 44, key	=> "234567", },
-	"2-10-46" => { WeekNum	=> 2, hour	=> 10, minut	=> 46, key	=> "234567", },
-	"2-10-48" => { WeekNum	=> 2, hour	=> 10, minut	=> 48, key	=> "234567", },
-	"2-10-50" => { WeekNum	=> 2, hour	=> 10, minut	=> 50, key	=> "234567", },
-	"2-10-52" => { WeekNum	=> 2, hour	=> 10, minut	=> 52, key	=> "234567", },
+# Ключевые параметры
+my ($keyParamsOne, $keyParamsTwo, $currentDict, $currentKeyParams);
+my $dictFiles = {
+	0 => 'dictOne.json',
+	1 => 'dictTwo.json',
 };
-my $keyParamsOne = {
+my $dictCurrentFile;
+
+$currentKeyParams = {
 	seconds	=> 10,
 	minut	=> 10,
 	hour	=> 10,
-	day	=> 10,
-	month	=> 1,
+	day	=> 26,
+	month	=> 3,
 	year	=> 2018,
-	WeekNum	=> 2,
-	concat	=> "2-10-10"
+	WeekNum	=> 13,
+	concat	=> "13-10-10"
 };
 
 # цвета для полей:
@@ -100,10 +84,13 @@ my $colorInfoErrorString = "\x1b[1;31m";
 			port: 465                 # порт
 			ssl: 1                    # использовать ли ssl
 		encode: '1'                  # Щифровать и расшифровывать ли сообщения (0 - нет, 1 - да)
+		clearKey: '1'                # Зачищать ли ключи после использования (0 - нет, 1 - да)
 		dict_type: '0'               # Тип используемого словаря (0 - первый тип(короткие ключи), 1 - второй тип(длинные ключи))
 		date_params_type: '0'        # Способ определения параметров даты сообщения (0 - дата вводится в ручную(по Гринвичу), 1 - дата берется из заголовка сообщения(локальная дата отправителя))
 =cut
-our $MailClientParams;	# переменная для загрузки в неё конфигурации
+my $MailClientParams;	# переменная для загрузки в неё конфигурации
+my $encode;
+my $clearKey;
 
 =head1 MailClient
 	Функция, в которой осуществляется:
@@ -119,8 +106,8 @@ sub MailClient {
 	# загрузка конфигурации из файла MailClient.yml
 	$MailClientParams = YAML::Tiny->read('MailClient.yml');
 	$MailClientParams = $MailClientParams->[0];
-	my $encode = $MailClientParams->{ MailClient }{ encode } // 1;	# включать ли шифрование (по-умолчанию -> включать)
-	# $MailClientParams->{ MailClient }{ dict_type };
+	$encode = $MailClientParams->{ MailClient }{ encode } // 1;	# включать ли шифрование (по-умолчанию -> включать)
+	$clearKey = $MailClientParams->{ MailClient }{ clearKey } // 1;	# зачищать ли ключи (по-умолчанию -> да)
 	# $MailClientParams->{ MailClient }{ date_params_type };
 
 	# Cобираем настройки согласно конфигурации + добавляем User и Password
@@ -128,13 +115,53 @@ sub MailClient {
 	$conParams{ User } = $user;
 	$conParams{ Password } = $password;
 
+	# Получаем тип активной таблицы (согласно конфигурации) и запоминаем в каком файле должна находиться соответствующая таблица
+	my $dictType = $MailClientParams->{ MailClient }{ dict_type };
+	$dictCurrentFile = $dictFiles->{$dictType};
+	# Если файла с таблицей(словарем) нет, то создать его и сохранить в файл
+	unless ( -e $dictCurrentFile ) {
+		print "\n" . 'Генерация таблицы ключей (занимает около 5-15 секунд).' . "\n";
+		# начальный период - текущий день (по-Гринвичу)
+		my ($startParams, $endParams);
+		# берем текущее время
+		my @time = gmtime(time);
+		$startParams->{seconds} = $time[0]; $startParams->{minut} = 0; $startParams->{hour} = $time[2];
+		$startParams->{day} = $time[3]; $startParams->{month} = $time[4] + 1; $startParams->{year} = $time[5] + 1900;
+		$startParams->{WeekNum} = int($time[7] / 7) + 1;
+		# приведем начальную дату к понедельнику текущей недели
+		$startParams = TimePartAdd( $startParams, -86400 * ($time[6] - 1) );
+		# конечный период + 51/52 недели ( 30844800 + день(86400) / 31449600 ).
+		my $endStartDiff;
+		if    ($dictType eq '0') { $endStartDiff = 30844800 + 86400; }
+		elsif ($dictType eq '1') { $endStartDiff = 31449600; }
+		$endParams = TimePartAdd( $startParams, $endStartDiff - 120 );
+
+		# формируем нужный словарь на 52 недели
+		if     ($dictType eq '0') { $currentDict = ShortTableGenerator( $startParams, $endParams ); }
+		elsif  ($dictType eq '1') { $currentDict = LongTableGenerator ( $startParams, $endParams ); }
+		# ToDo проконтролировать что таблица была создана
+
+		print "Итого ключей сгенерированно - " . scalar keys %{$currentDict};
+		print "\n" . 'Генерация таблицы ключей завершена' . "\n";
+		print 'Сохранение таблицы ключей в файл ' . $dictCurrentFile . " (занимает около 5 секунд)\n";
+		# cохраняем полученную таблицу в файл
+		SaveTableToFile( $currentDict, $dictCurrentFile );
+		# сообщаем пользователю о завершении генерации таблицы и рекомендацию
+		print 'Таблица ключей сохранена' . "\n";
+		print 'Рекомендуется позаботиться о её передаче собеседнику до дальнейшего использования почтового клиента.' . "\n\n";
+	}
+	else { # иначе загрузить из существующего файла
+		print "\n" . 'Загрузка таблицы ключей из файла ' . $dictCurrentFile . "\n";
+		$currentDict = LoadTableFromFile( $dictCurrentFile );
+		print 'Таблица ключей загружена' . "\n\n";
+	}
+
+
+
 	# устанавливаем соединение с почтовым сервером
 	my $imap = Mail::IMAPClient->new( %conParams ) or die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n";
 	# выходить с сообщением об ошибке, если соединение с почтовым сервером не было успешным
 	die $colorInfoErrorString . "Can't connect to your mail server." . $colorDefault . "\n" unless ( defined $imap->{Server} );
-
-	# ToDo подгрузить (или сгенерировать, предупредив пользователя об этом) таблицы ключей (обоих типов)
-	# (в случае генерации рекомендовать чтобы пользователь передал только что сгенерированную копию тому с кем планирует общаться (формат доставки организуется самим пользователем) )
 
 	# получаем с сервера список папок
 	my $folders = $imap->folders
@@ -219,6 +246,8 @@ sub MailClient {
 				"Время отправления: $msgInfoHash{ $k }{ Date }\nВнутреннее время: " . $msgInfoHash{ $k }{ INTERNALDATE };
 		}
 
+
+
 		my ($msgid, $string);
 		while (1) {
 			say $colorInfoString . '_____________________________________________________' . $colorDefault;
@@ -265,10 +294,8 @@ sub MailClient {
 				# ToDo определение параметров для расшифрования
 
 				# Расшифровываем текст
-				my $msgMas = EncDecLong($string, $dictOne, $keyParamsOne);
+				my $msgMas = EncDecLong($string, $currentDict, $currentKeyParams, undef, $clearKey);
 				$string = '';	$string .= $_->{msg} foreach ( @{ $msgMas } );
-
-				# ToDo проверяем результат шифрования на undef - ошибка повторного использования ключа(возможно устарела таблица, или некорректность дат)
 			}
 			$string =~ s/(<div>)?([^<]*)(<\/div>)?/$2\n/g;	# убираем <div>(если есть) и добавляем перенос строки
 			chop($string);	# обрезаем перенос после последнего символа
@@ -285,6 +312,13 @@ sub MailClient {
 			say '-----------------------------------------------------';
 			say '------------------- Mail end line -------------------';
 			say '-----------------------------------------------------';
+
+			# Если ключ был зачищен, перезаписать файл с ключами
+			if ($encode and $clearKey and $string) {
+				print "\n" . 'Перезапись таблицы ключей (занимает около 5-10 секунд).' . "\n";
+				SaveTableToFile( $currentDict, $dictCurrentFile );
+				print 'Таблица ключей перезаписана' . "\n";
+			}
 
 			# ожидание ввода:
 			say '';
@@ -307,7 +341,6 @@ sub MailClient {
 =cut
 sub SendMail {
 	my $imap = shift;
-	my $encode = $MailClientParams->{ MailClient }{ encode } // 1;	# включать ли шифрование (по-умолчанию -> включать)
 
 	my ($to, $subject, $body);
 	say $colorInfoString . '_____________________________________________________' . $colorDefault;
@@ -333,7 +366,7 @@ sub SendMail {
 		# ToDo определение параметров для шифрования (они же временные параметры для отправки сообщения)
 
 		# шифруем текст
-		my $msgMas = EncDecLong($body, $dictOne, $keyParamsOne);	# шифруем сообщение (разбивая на части если нужно)
+		my $msgMas = EncDecLong($body, $currentDict, $currentKeyParams, undef, $clearKey);	# шифруем сообщение (разбивая на части если нужно)
 		$body = '';	$body .= $_->{msg} foreach ( @{ $msgMas } );	# собираем зашифрованный вариант в одно целое
 
 		# ToDo проверяем результат шифрования на undef - ошибка повторного использования ключа(возможно устарела таблица, или некорректность дат)

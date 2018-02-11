@@ -302,6 +302,7 @@ sub TimePartAdd {
 	my $keyParams = shift;
 	my $TimePartExpander = shift;
 	$TimePartExpander = $defTimePartExpander unless defined $TimePartExpander;
+	$keyParams = { %$keyParams }; # копируем keyParams
 	# получаем unix_timestamp
 	my $unix_timestamp = timegm($keyParams->{seconds}, $keyParams->{minut}, $keyParams->{hour}, $keyParams->{day}, $keyParams->{month} - 1, $keyParams->{year});
 	$unix_timestamp += $TimePartExpander;	# модифицируем

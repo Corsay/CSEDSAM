@@ -7,7 +7,7 @@ use Test::More;
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 
-plan tests => 38;
+plan tests => 39;
 
 use EncDecRYPT;
 use TablesPRNG;
@@ -167,5 +167,6 @@ EncDecLongTests( $msg, $dictTwo, $keyParamsTwo, 'Len last part of msg < len key'
 
 
 ##### 4. Повторное использование ключа - результат возвращаемый функцией шифрования - undef
-isnt(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2), undef, 'Try to use key first time - not undef returned.');
-is(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2), undef, 'Try to use key second time - undef returned.');
+isnt(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2, 0), undef, 'Try to use key first time - with no clear key option - not undef returned.');
+isnt(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2, 1), undef, 'Try to use key second time - with clear key option - not undef returned.');
+is(EncDecLong($msg, $dictOne, $keyParamsOne, $sym2), undef, 'Try to use key third time - undef returned.');
