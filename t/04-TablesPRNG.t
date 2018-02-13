@@ -40,9 +40,9 @@ sub AddTimeMeter {
 	# фиксируем время завершения и сохраняем разницу
 	$tm2 = Time::Moment->now;
 	my $seconds      = $tm1->delta_seconds($tm2);
-	my $milliseconds = $tm1->delta_milliseconds($tm2);
-	my $microseconds = $tm1->delta_microseconds($tm2);
-	my $nanoseconds  = $tm1->delta_nanoseconds($tm2);
+	my $milliseconds = $tm1->delta_milliseconds($tm2) % 1000;
+	my $microseconds = $tm1->delta_microseconds($tm2) % 1000;
+	my $nanoseconds  = $tm1->delta_nanoseconds($tm2) % 1000;
 	$tm = sprintf(" %7d %12d %12d %11d", $seconds, $milliseconds, $microseconds, $nanoseconds);
 
 	# добавляем в массив запись о времени
