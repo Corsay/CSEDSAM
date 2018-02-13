@@ -176,6 +176,7 @@ sub MailClient {
 
 		system('clear');
 		# Прокерка валидности номера папки (только число от 0 до $#{$folders} + 2)
+		next unless $folderNum;
 		if ($folderNum - 2 > $#{$folders} or $folderNum !~ /^\d+$/) {
 			print $colorInfoErrorString . "Введен некорректный номер папки '$folderNum'\n" . $colorDefault;
 			next;
@@ -266,13 +267,6 @@ sub MailClient {
 				next;
 			};
 
-			# ToDo проверить, периодически попадается(разово) в теле сообщения - "...FLAGS... UID..."
-			#use DDP;
-			#p $hashref->{ $msgid }{ 'RFC822.TEXT' };
-			#p $string;
-			say $colorInfoString . '_____________________________________________________'. $colorDefault;
-			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfStr } . $colorDefault;
-
 			# обрабатываем сообщение
 			chomp($string);	# убираем символ переноса в конце
 			$string =~ s/.{1}$//;	# убираем символ в конце
@@ -281,9 +275,18 @@ sub MailClient {
 			$string = Encode::decode("utf8", $string); # расшифровываем из utf8
 			# Расшифровываем текст (если указано)
 			if ($encode) {
-				# получение временных параметров из заголовка сообщения
-				$currentKeyParams = StringToTimeParams( $msgInfoHash{ $msgid }{ Date } );
-				# ToDo реализовать оба варианта получения временных параметров
+				# формируем время отправки согласно выбранному типу date_params_type
+				my $time;
+				if ($date_params_type eq '0') {
+					# формируем время отправления (запрашиваем у пользователя время (по-Гринвичу))
+					$time = UserTimeToStringTime();
+					system('clear');
+				}
+				elsif ($date_params_type eq '1') {
+					# формируем время отправления (берем из заголовка сообщения)
+					$time = $msgInfoHash{ $msgid }{ Date };
+				}
+				$currentKeyParams = StringToTimeParams( $time );
 
 				# Расшифровываем текст
 				my $msgMas = EncDecLong($string, $currentDict, $currentKeyParams, undef, $clearKey);
@@ -296,6 +299,8 @@ sub MailClient {
 			$string =~ s/(&gt;)/>/g;
 			$string =~ s/(&amp;)/&/g;
 
+			say $colorInfoString . '_____________________________________________________'. $colorDefault;
+			say $colorInfoString . "Информация о сообщении:\nНомер: $msgid\n" . $msgInfoHash{ $msgid }{ InfStr } . $colorDefault;
 			# выводим сообщение
 			say '-----------------------------------------------------';
 			say '------------------- Mail contain: -------------------';
@@ -342,28 +347,39 @@ sub SendMail {
 	say $colorQuestions . 'Введите адрес получателя, тему и содержимое сообщения' . $colorDefault;
 	say $colorQuestions . '-----------------------------------------------------' . $colorDefault;
 	# запрашиваем у пользователя данные для отправки
-	print $colorAnswerLine . "Получатель - " . $colorDefault;
+	print $colorAnswerLine . "Поля отмеченные * - обязательны для заполнения." . $colorDefault . "\n";
+	print $colorAnswerLine . "* Получатель - " . $colorDefault;
 	$to = <STDIN>;	# Получатель ($to = 'SomePostAdr@Post.com';)
 	chomp($to);
 	print $colorAnswerLine . "Тема - " . $colorDefault;
 	$subject = <STDIN>;	# Тема ($subject = 'AutoMsg';)
 	chomp($subject);
-	print $colorAnswerLine . "Сообщение - " . $colorDefault;
+	print $colorAnswerLine . "* Сообщение - " . $colorDefault;
 	$body = <STDIN>;	# Сообщение ($body = "My msg like this.\n";)
 	chomp($body);
-	# ToDo обработка не указанных полей
+
+	# проверка заполненности обязательных полей
+	if (grep { $_ eq '' } $to, $body) {
+		system('clear');
+		print $colorInfoErrorString . "Не все обязательные поля были заполнены." . $colorDefault . "\n";
+		return;
+	}
 
 	# шифруем текст (если указано)
 	if ($encode) {
-		# проверяем что хватит времени для отправки сообщения во время (если не хватает(минимум требуем 30 секунд), предупреждаем пользователя и выжидаем)
-		# ToDo переделать под второй поток - который будет отправлять сообщения по мере необходимости
+		# формируем время отправки согласно выбранному типу date_params_type
+		my $time;
+		if ($date_params_type eq '0') {
+			# формируем время отправления (запрашиваем у пользователя время (по-Гринвичу))
+			$time = UserTimeToStringTime();
+		}
+		elsif ($date_params_type eq '1') {
+			# ToDo проверяем что хватит времени для отправки сообщения во время (если не хватает(минимум требуем 30 секунд), предупреждаем пользователя и выжидаем)
 
-
-		# формируем время отправления (берем текущее)
-		my $time = strftime "%a, %e %b %Y %H:%M:%S +0000", gmtime;
+			# формируем время отправления (берем текущее)
+			$time = strftime "%a, %e %b %Y %H:%M:%S +0000", gmtime;
+		}
 		$currentKeyParams = StringToTimeParams( $time );
-		# ToDo реализовать оба варианта получения временных параметров
-
 
 		# шифруем текст
 		my $msgMas = EncDecLong($body, $currentDict, $currentKeyParams, undef, $clearKey);	# шифруем сообщение (разбивая на части если нужно)
@@ -434,9 +450,9 @@ sub SendMail {
 		unix_timestamp => время в формате unix_time
 		concat  => конкатенация  согласно формату используемого словаря (таблицы ключей)
 =cut
-my $monthWordToDict = {	# хеш конвертации сокращенного названия месяца в число (номер месяца 1..12)
-	'Jan' => 1, 'Feb' => 2, 'Mar' => 3, 'Apr' => 4, 'May' => 5, 'June' => 6,
-	'July' => 7, 'Aug'  => 8, 'Sept' => 9, 'Oct' => 10, 'Nov' => 11, 'Dec' => 12,
+my $monthWordToDigit = {	# хеш конвертации сокращенного названия месяца в число (номер месяца 1..12)
+	'Jan'  => 1, 'Feb' => 2, 'Mar'  => 3, 'Apr' =>  4, 'May' =>  5, 'June' => 6,
+	'July' => 7, 'Aug' => 8, 'Sept' => 9, 'Oct' => 10, 'Nov' => 11, 'Dec' => 12,
 };
 sub StringToTimeParams {
 	my $dateSTR = shift;
@@ -453,7 +469,7 @@ sub StringToTimeParams {
 		minut   => $params[4],
 		hour    => $params[3],
 		day     => $params[0],
-		month   => $monthWordToDict->{ $params[1] },	# необходима конвертация из буквенного представления в числовое (от 1 до 12)
+		month   => $monthWordToDigit->{ $params[1] },	# необходима конвертация из буквенного представления в числовое (от 1 до 12)
 		year    => $params[2],
 	};
 
@@ -475,6 +491,51 @@ sub StringToTimeParams {
 	}
 	# возвращаем итоговый хеш
 	return $keyParams;
+}
+
+=head2 UserTimeToStringTime
+	Функция, запрашивающая у пользователя временные параметры (месяц, день, часы и минуты) и выдает строку нужного формата
+	Формат выходной строки:
+		"11 Feb 2018 19:38:39 +0300"
+		день месяц(словом) год часы:минуты:секунды ЗнакРазницы(+-)ЧасыМинуты (разница localtime отравителя от gmt)
+=cut
+my $monthDigitToWord = {	# хеш конвертации числа в сокращенное названия месяца (номер месяца 1..12)
+	1 => 'Jan' , 2 => 'Feb', 3 => 'Mar' ,  4 => 'Apr',  5 => 'May', 6 => 'June',
+	7 => 'July', 8 => 'Aug', 9 => 'Sept', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec',
+};
+sub UserTimeToStringTime {
+	my ($month, $day, $hour, $minut);
+	# запрашиваем месяц, день, часы и минуты (уточняем что минуты ожидаются кратными 2-м)
+	print $colorAnswerLine . "\nВведите дату и время по-Гринвичу (gmt)." . $colorDefault . "\n";
+	print $colorAnswerLine . "Все поля обязательны для заполнения." . $colorDefault . "\n";
+	print $colorAnswerLine . "Месяц (1..12) - " . $colorDefault;
+	$month = <STDIN>;
+	chomp($month);
+	print $colorAnswerLine . "День (1..N(в зависимости от месяца)) - " . $colorDefault;
+	$day = <STDIN>;
+	chomp($day);
+	print $colorAnswerLine . "Часы (0..23) - " . $colorDefault;
+	$hour = <STDIN>;
+	chomp($hour);
+	print $colorAnswerLine . "Минуты (0..59) - " . $colorDefault;
+	$minut = <STDIN>;
+	chomp($minut);
+
+	# ToDo Проверить параметры на валидность
+	# т.е. решить проблему - при некорректных числах, в дальнейшие вызовы функций работы со временем приведут к сбоям
+
+	# получаем дополнительные необходимые параметры (год)
+	my @time = gmtime();
+	my $year = $time[5] + 1900;
+
+	# переводим минуты к числу кратному 2-м
+	$minut = int($minut / 2) * 2;
+	# переводим месяц в словесное представление
+	$month = $monthDigitToWord->{ $month };
+	# формируем строку нужного формата
+	my $stringTime = $day . ' ' . $month . ' ' . $year . ' ' . $hour . ':' . $minut . ':00 +0000';
+
+	return $stringTime;
 }
 
 
