@@ -413,12 +413,20 @@ sub SendMail {
 	# сообщаем через какой сервер будет отправлять сообщение
 	my $transport = Email::Sender::Transport::SMTP->new( %conParams );
 	# отправляем сообщение (тут порой может подтормознуть)
+	# ToDo защитить от несуществующего получателя
 	sendmail(
 		$email,
 		{
 			transport => $transport,
 		}
 	);
+
+	# Если ключ был зачищен, перезаписать файл с ключами
+	if ($encode and $clearKey) {
+		print "\n" . 'Перезапись таблицы ключей (занимает около 5-10 секунд).' . "\n";
+		SaveTableToFile( $currentDict, $dictCurrentFile );
+		print 'Таблица ключей перезаписана' . "\n";
+	}
 
 	# ожидание ввода:
 	say '';
