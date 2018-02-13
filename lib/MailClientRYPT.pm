@@ -118,23 +118,13 @@ sub MailClient {
 		my ($startParams, $endParams);
 		# берем текущее время
 		$startParams = TimeHashFromUnixTime(time, $startParams);
-		# приводим минуты к кратному 2-м виду
-		$startParams ->{minut} = int($startParams ->{minut} / 2) * 2;
-		#my @time = gmtime(time);
-		#$startParams->{seconds} = $time[0]; $startParams->{minut} = 0; $startParams->{hour} = $time[2];
-		#$startParams->{day} = $time[3]; $startParams->{month} = $time[4] + 1; $startParams->{year} = $time[5] + 1900;
-		#$startParams->{wday} = $time[6]; $startParams->{WeekNum} = int($time[7] / 7) + 1;
-		# приведем начальную дату к понедельнику текущей недели
-		#$startParams = TimePartAdd( $startParams, -86400 * ($startParams->{wday} - 1) );
-		# конечный период + 51/52 недели ( 30844800 + день(86400) / 31449600 ).
+		# указываем что рассчитываем ключи от начала дня
+		$startParams->{seconds} = 0; $startParams->{minut} = 0; $startParams->{hour} = 0;
+		# приведем начальную дату к понедельнику текущей недели (или следующей недели, при wday = 0 - воскресение)
+		$startParams = TimePartAdd( $startParams, -86400 * ($startParams->{wday} - 1) );
+		# конечный период + 52 недели ( 31449600 секунд - 2 минуты ).
 		my $endStartDiff = 31449600;
-		#if    ($dictType eq '0') { $endStartDiff = 30844800 + 86400; }
-		#elsif ($dictType eq '1') { $endStartDiff = 31449600; }
 		$endParams = TimePartAdd( $startParams, $endStartDiff - 120 );
-
-		# TODO ПОФИКСИТЬ ПРОБЛЕМУ ГЕНЕРАЦИИ, ВЫБОР ВРЕМЕНИ НАЧАЛА И ОКОНЧАНИЯ НЕВЕРНЫЙ
-		#$startParams = { seconds => 0, minut => 0, hour => 0, day => 1, month => 1, year => 2018, WeekNum => 1, };
-		#$endParams = { seconds => 0, minut => 58, hour => 23, day => 30, month => 12, year => 2018, };
 
 		# формируем нужный словарь на 52 недели
 		if     ($dictType eq '0') { $currentDict = ShortTableGenerator( $startParams, $endParams ); }
@@ -155,26 +145,6 @@ sub MailClient {
 		$currentDict = LoadTableFromFile( $dictCurrentFile );
 		print 'Таблица ключей загружена' . "\n\n";
 	}
-
-=debug
-	# проверка наличия всех ключей в словаре первого типа
-	my $flag = 1;
-	for my $i (1..52) {
-		for my $j (0..23) {
-			my $k = 0;
-			while ($k < 60) {
-				my $concat = "$i-$j-$k";
-				unless ( exists $currentDict->{ $concat } ) {
-					$flag = 0;
-					last;
-				}
-				$k += 2;
-			}
-		}
-	}
-	if ($flag) { say "Exists All keys in dict type One"; }
-	else { say "bad"; }
-=cut
 
 
 
